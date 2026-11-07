@@ -16,4 +16,4 @@ The builder writes a deterministic ZIP and SHA-256 in `dist/`. The manifest vers
 
 Use disposable designs. Check installation and command lifecycle, picking and cancellation, measurement types, units and camera movement, transformed and nested occurrences, and multiple documents. Test save, Save As, cancellation, failed save, close and reopen in both macOS and Windows, including a full Fusion restart. CustomGraphics save/reopen safety is **not established**; do not save valuable designs while the add-in is running. See [Fusion safety notes](fusion-safety.md).
 
-Release automation and immutable tags follow [release policy](../.github/RELEASE_POLICY.md). Choose and review a distribution license before distributing code or binaries; see [licensing guide](LICENSING.md).
+Release automation and immutable tags follow [release policy](../.github/RELEASE_POLICY.md). Mesora is distributed under PolyForm Noncommercial 1.0.0; commercial use outside its permitted purposes requires a separate agreement.

@@ -32,4 +32,4 @@ See [research and test notes](docs/fusion-safety.md).
 
 Build `python3 scripts/build.py --version 1.0.0`, extract the ZIP into the Fusion AddIns directory so that `Mesora/Mesora.manifest` and `Mesora/Mesora.py` are directly inside the extracted folder, then start Mesora from Fusion's Add-Ins dialog. The ZIP is also intended for GitHub Releases when published. Restarting or stopping the add-in clears session measurements.
 
-No distribution license has yet been selected. See [licensing](docs/LICENSING.md).
+Mesora is available under the [PolyForm Noncommercial License 1.0.0](LICENSE). Commercial use outside its permitted purposes requires a separate agreement with the copyright holder; contact 4FusionLab.
