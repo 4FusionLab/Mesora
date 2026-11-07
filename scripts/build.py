@@ -9,7 +9,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_PATTERN = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z')
-SKIP_DIRS = {'__pycache__', '.git', '.venv', 'node_modules'}
+SKIP_DIRS = {'__pycache__', '.git', '.venv', 'node_modules', '.vscode'}
 SKIP_FILES = {'.DS_Store'}
 FORBIDDEN_SUFFIXES = {'.pyc', '.pyo', '.pem', '.p12', '.pfx', '.key'}
 FORBIDDEN_NAMES = {'.env', '.env.local', '.env.production'}

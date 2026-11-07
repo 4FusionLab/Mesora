@@ -35,21 +35,19 @@ def validate(root=ROOT, allow_template=False):
         raise ValueError('Invalid manifest numeric version.')
     if manifest.get('description', {}).get('') != metadata['description']:
         raise ValueError('Manifest description must match project metadata.')
-    config = (package / 'config.py').read_text(encoding='utf-8')
-    pure_code = ast.parse((package / 'core.py').read_text(encoding='utf-8'))
-    for node in ast.walk(pure_code):
-        if isinstance(node, ast.Import) and any(
-            alias.name == 'adsk' or alias.name.startswith('adsk.') for alias in node.names
-        ):
-            raise ValueError('The testable domain core must not import Fusion APIs.')
-        if isinstance(node, ast.ImportFrom) and node.module and (
-            node.module == 'adsk' or node.module.startswith('adsk.')
-        ):
-            raise ValueError('The testable domain core must not import Fusion APIs.')
-    if 'INITIALIZED = ' + str(initialized) not in config:
-        raise ValueError('Fusion runtime initialization flag differs from metadata.')
-    if 'ADDIN_NAME = ' + repr(name) not in config:
-        raise ValueError('Fusion runtime add-in name differs from metadata.')
+    for source in (package / 'dimensions').glob('*.py'):
+        if source.name == 'fusion_geometry.py':
+            continue
+        pure_code = ast.parse(source.read_text(encoding='utf-8'))
+        for node in ast.walk(pure_code):
+            if isinstance(node, ast.Import) and any(
+                alias.name == 'adsk' or alias.name.startswith('adsk.') for alias in node.names
+            ):
+                raise ValueError('Domain modules must not import Fusion APIs: ' + source.name)
+            if isinstance(node, ast.ImportFrom) and node.module and (
+                node.module == 'adsk' or node.module.startswith('adsk.')
+            ):
+                raise ValueError('Domain modules must not import Fusion APIs: ' + source.name)
     uuid_value = str(uuid.UUID(manifest['id']))
     if initialized and uuid_value == '00000000-0000-4000-8000-000000000000':
         raise ValueError('A real project must generate its own UUID.')

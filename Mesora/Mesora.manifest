@@ -1,0 +1,12 @@
+{
+  "autodeskProduct": "Fusion360",
+  "type": "addin",
+  "author": "4FusionLab",
+  "description": {
+    "": "Experimental informational 3D dimensions (session-only safe mode)."
+  },
+  "version": "1.0.0",
+  "supportedOS": "windows|mac",
+  "editEnabled": true,
+  "id": "89072f8c-cdca-48bf-8a2a-440c9ae898e6"
+}

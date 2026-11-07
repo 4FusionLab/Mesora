@@ -1,4 +1,4 @@
 # Distribution inputs only; documentation, tests, CI and policy do not publish.
-FusionAddin/**
+Mesora/**
 scripts/build.py
 .fusion-addin.json

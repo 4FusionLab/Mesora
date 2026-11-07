@@ -1,27 +1,35 @@
-# 4FusionLab · Fusion Add-in Template
+# Mesora
 
-[Русская версия](README.ru.md)
+Mesora is an experimental Autodesk Fusion add-in for informational 3D dimensions.
+The experimental build is available under Design → Solid → Inspect → Mesora — Add
+Dimension. Select geometry repeatedly to build a table of measurements. Two point
+selections form one distance; each other supported selection forms its own row.
+Each row has a session ID and a choice of compatible measurement types. Select a
+row and use Remove selected to delete it; Cancel point clears an unfinished pair.
+The same menu provides show/hide, refresh and clear. Use disposable documents while testing.
 
-A reusable **Autodesk Fusion add-in starter** for 4FusionLab. It includes a working command, a Fusion manifest, offline tests, cross-platform CI, deterministic ZIP packaging and the shared 4FusionLab automatic release policy.
+The planned MVP keeps dimension definitions in memory only. Nothing is intentionally
+written to `Design.attributes`; closing the document or stopping the add-in loses the
+session dimensions. CustomGraphics can mark a document modified even when groups are
+deleted. Fusion may serialize CustomGraphics into an inaccessible persistent artifact;
+removing groups in `documentSaving` and restoring after `documentSaved` is implemented
+but has not been validated by save/reopen testing. It is not a safety guarantee. Use
+only disposable documents, and do not save them with the experimental build enabled.
 
-## Create a new add-in
+The source package is in `Mesora/`. Unit tests run with:
 
-1. Click **Use this template** → **Create a new repository**, preferably in the `4FusionLab` organization.
-2. In the new repository open **Actions → Initialize add-in → Run workflow**. The repository name becomes the Python add-in package name; you can enter a friendly display name and description.
-3. The initialization commit generates a **new manifest UUID and command ID**, renames the add-in package and prepares the bilingual project README files.
-4. Develop your add-in in its package directory. Run `python -m unittest discover -s tests -v` and `python scripts/build.py --version 0.1.0` for a local verification.
-5. After initialization, every push or merged PR to `main` which touches **shipped runtime files** is eligible for an automatic release, subject to green CI. Documentation and test-only changes do not publish.
+```sh
+python3 -m unittest discover -s tests -v
+```
 
-If Actions cannot be enabled yet, run the initializer locally: `python scripts/init_addin.py --name MyNewAddin --display-name "My New Add-in"`, commit its changes and push.
+Native read-only measurement and direct render/create/delete calls have been tried on
+macOS Fusion. The command was exercised on a temporary macOS design using programmatic Fusion
+selection events and UI confirmation. Physical picking, broader event lifecycle, safe
+save/reopen, transformed occurrences, Windows, and appearance/rotation acceptance remain open.
+See [research and test notes](docs/fusion-safety.md).
 
-> Never install or publish the uninitialized `FusionAddin` placeholder as a real product.
+## Installation
 
-## What is shared?
+Build `python3 scripts/build.py --version 1.0.0`, extract the ZIP into the Fusion AddIns directory so that `Mesora/Mesora.manifest` and `Mesora/Mesora.py` are directly inside the extracted folder, then start Mesora from Fusion's Add-Ins dialog. The ZIP is also intended for GitHub Releases when published. Restarting or stopping the add-in clears session measurements.
 
-- GitVersion.Tool **6.8.2** and conventional commit conventions.
-- Immutable, SHA-pinned composite Actions from [4FusionLab/.github](https://github.com/4FusionLab/.github).
-- CI on Linux, macOS and Windows; offline tests are distinct from real Fusion acceptance.
-- ZIP and SHA-256 verification; no manually created release tags.
-- Separate English and Russian documentation and `AGENTS.md` rules for coding agents.
-
-The repository is a template, not an existing 4FusionLab product. See `docs/DEVELOPMENT.md` after scaffolding is installed.
+No distribution license has yet been selected. See [licensing](docs/LICENSING.md).
