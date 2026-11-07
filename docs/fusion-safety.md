@@ -1,5 +1,7 @@
 # Fusion API safety research
 
+[Русская версия](fusion-safety.ru.md)
+
 ## CustomGraphics persistence
 
 An [Autodesk forum report](https://forums.autodesk.com/t5/fusion-support-forum/bug-report-custom-graphics-serialized-into-a-document-are/td-p/14142906)
