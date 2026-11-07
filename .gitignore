@@ -1,0 +1,27 @@
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Release products and sensitive local data
+dist/
+build/
+*.zip
+*.zip.sha256
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+*.key

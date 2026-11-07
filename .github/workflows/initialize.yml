@@ -1,0 +1,68 @@
+name: Initialize add-in
+
+on:
+  workflow_dispatch:
+    inputs:
+      display_name:
+        description: 'Display name in Autodesk Fusion (default: repository name)'
+        required: false
+        type: string
+      description:
+        description: 'Short English product description'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: 4fl-initialize
+  cancel-in-progress: false
+
+jobs:
+  initialize:
+    name: Scaffold once with unique Fusion IDs
+    if: github.repository != '4FusionLab/.fusion-addin-template' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # explicitly required to push setup commit
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Generate unique manifest and command identifiers
+        shell: bash
+        env:
+          DISPLAY_NAME: ${{ inputs.display_name }}
+          PRODUCT_DESCRIPTION: ${{ inputs.description }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          repo_name="${REPOSITORY#*/}"
+          python scripts/init_addin.py --name "$repo_name" \
+            --display-name "$DISPLAY_NAME" --description "$PRODUCT_DESCRIPTION" \
+            --repo "$REPOSITORY"
+          python scripts/check_project.py
+          python -m unittest discover -s tests -v
+      - name: Commit generated project to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Initialization made no changes" >&2
+            exit 1
+          fi
+          git commit -m "chore: initialize 4FusionLab add-in [skip release]"
+          git push origin HEAD:main
+      - name: Dispatch read-only CI on initialized commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref main
+

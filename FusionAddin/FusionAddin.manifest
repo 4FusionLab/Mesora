@@ -1,0 +1,12 @@
+{
+  "autodeskProduct": "Fusion360",
+  "type": "addin",
+  "id": "00000000-0000-4000-8000-000000000000",
+  "author": "4FusionLab",
+  "description": {
+    "": "A starter add-in for Autodesk Fusion by 4FusionLab."
+  },
+  "version": "0.1.0",
+  "runOnStartup": false,
+  "supportedOS": "windows|mac"
+}

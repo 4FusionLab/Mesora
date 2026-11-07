@@ -1,0 +1,6 @@
+{
+  "name": "FusionAddin",
+  "display_name": "Fusion Add-in Template",
+  "description": "A starter add-in for Autodesk Fusion by 4FusionLab.",
+  "initialized": false
+}
