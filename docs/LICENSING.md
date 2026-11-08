@@ -1,5 +1,7 @@
 # License selection for new 4FusionLab products
 
+[Русская версия](LICENSING.ru.md)
+
 The **repository template does not select a license for a generated add-in**. Add a `LICENSE` file after making a deliberate product decision, ideally before accepting external contributions or releasing binaries.
 
 | Scenario | Typical choice | Implications |

@@ -1,5 +1,7 @@
 # Fusion API safety research
 
+[Русская версия](fusion-safety.ru.md)
+
 ## CustomGraphics persistence
 
 An [Autodesk forum report](https://forums.autodesk.com/t5/fusion-support-forum/bug-report-custom-graphics-serialized-into-a-document-are/td-p/14142906)
@@ -33,7 +35,9 @@ is documented in root-component space including assembly context. Other object
 types and token resolution need their own context tests. Token strings must not be
 compared as identity; unresolved or ambiguous references must not render old data.
 
-## Current validation
+## Initial validation (historical)
+
+The observations below document an earlier investigation. For later command checks and remaining limitations, see the [README](../README.md).
 
 Offline unit tests exercise arithmetic, evaluator and persistence stubs, schema
 handling, and reference failure cases. A read-only run on the open macOS Fusion
