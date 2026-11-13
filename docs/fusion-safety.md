@@ -11,7 +11,11 @@ not a documented guarantee. No archive modification is implemented or recommende
 The official [Application API](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_Application.htm)
 documents `documentSaving` at the start of saving, `documentSaved` after completion,
 `documentOpened` at the end of opening, `documentActivated` and `documentClosing`.
-Saving can be canceled through `DocumentEventArgs.isSaveCanceled`. Documentation
+The current [DocumentEventArgs reference](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_DocumentEventArgs.htm)
+documents `isOperationCancelled` and `cancelReason` for saving. Fusion 2706.1.17
+exposes those properties and does not expose `isSaveCanceled`; the older Application
+event description still mentions that obsolete name. Native fault-injection must
+verify actual cancellation, beyond checking that the property exists. Documentation
 does not establish that deleting every custom graphic in `documentSaving` prevents
 all cached-scene serialization paths, nor that a canceled or failed save always
 delivers `documentSaved`. Treat those as open questions. Do not claim persistence
@@ -33,7 +37,7 @@ is documented in root-component space including assembly context. Other object
 types and token resolution need their own context tests. Token strings must not be
 compared as identity; unresolved or ambiguous references must not render old data.
 
-## Current validation
+## Historical validation before the stability candidate
 
 Offline unit tests exercise arithmetic, evaluator and persistence stubs, schema
 handling, and reference failure cases. A read-only run on the open macOS Fusion
@@ -48,3 +52,17 @@ cylindrical diameter; the group count returned to zero. This did not test the
 interactive command or establish visual quality. Fusion marked the open design
 modified, and it was not saved. Attempts to enable the add-in through the manager
 did not produce registered commands; the cause has not yet been established.
+
+## Stability candidate, 2026-11-13
+
+Commands are now registered. The candidate stores definitions and visibility in
+design attributes and implements deferred geometry updates. Native API testing
+confirmed definition round trips and rebuilding on changed geometry through direct
+handler invocation. Event delivery and full UI flows remain separate acceptance gates.
+
+Saving visible graphics through API Save As, stopping Mesora, and reopening a
+synthetic design reproduced visible orphan graphics with zero API groups. Editing
+and saving the geometry without Mesora left an incorrect old annotation visible.
+A control path that explicitly removed graphics before saving reopened cleanly;
+this does not establish safety for all save paths. See the [native evidence](validation/stability-native-2026-11-13.ru.md).
+Stable publication is withheld; Windows and full restart acceptance remain pending.

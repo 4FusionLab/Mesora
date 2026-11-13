@@ -51,6 +51,14 @@ class Eval:
 
 
 class RendererPlaneTest(unittest.TestCase):
+    def test_clearance_signature_invalidates_internal_body_changes(self):
+        body = types.SimpleNamespace(revisionId='before',
+            boundingBox=types.SimpleNamespace(minPoint=Point(0,0,0), maxPoint=Point(1,1,1)))
+        with FakeAPI() as renderer, patch.object(renderer, 'visible_solids', return_value=[body]):
+            before = renderer.obstacle_signature(object())
+            body.revisionId = 'after'  # A hole changes without changing bounds.
+            self.assertNotEqual(before, renderer.obstacle_signature(object()))
+
     def test_angle_layout_tracks_screen_scale_and_extends_short_sides(self):
         import math
         with FakeAPI() as renderer:
@@ -75,6 +83,8 @@ class RendererPlaneTest(unittest.TestCase):
             self.assertFalse(renderer._LABELS[id(group)][-1])
             self.assertAlmostEqual(abs(renderer.dot(renderer._LABELS[id(group)][2], (-2**-.5, 2**-.5, 0))), 1)
         self.assertEqual(group.text.caption, 'm1: deg')
+        self.assertFalse(group.isChildrenSelectable)
+        self.assertFalse(group.isSelectable)
         self.assertGreater(len(group.lines.coords), 24)
         self.assertEqual(group.lines.coords[:3], (0,0,0))
 

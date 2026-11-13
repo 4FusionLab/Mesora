@@ -16,7 +16,10 @@ def load(design):
     if not attribute:
         return [], True
     # Refuse to interpret or overwrite corrupt and future schemas.
-    return deserialize(attribute.value)
+    payload = attribute.value
+    if not isinstance(payload, str) or len(payload.encode('utf-8')) > MAX_BYTES:
+        raise PersistenceError('Dimension definitions exceed Fusion attribute limit')
+    return deserialize(payload)
 
 
 def save(design, dimensions, visible):
@@ -25,6 +28,9 @@ def save(design, dimensions, visible):
     payload = serialize(dimensions, visible)
     if len(payload.encode('utf-8')) > MAX_BYTES:
         raise PersistenceError('Dimension definitions exceed Fusion attribute limit')
+    current = design.attributes.itemByName(GROUP, NAME)
+    if current and current.value == payload:
+        return
     attribute = design.attributes.add(GROUP, NAME, payload)
     if not attribute or attribute.value != payload:
         raise PersistenceError('Fusion did not store the dimension definitions')

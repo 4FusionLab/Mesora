@@ -340,7 +340,9 @@ def cached_layout(cache, ident, signature, calculate):
 
 
 def obstacle_signature(root):
-    return tuple((body, xyz(body.boundingBox.minPoint), xyz(body.boundingBox.maxPoint))
+    # Internal cuts can change clearance without changing a body's bounds.
+    return tuple((body, getattr(body, 'revisionId', None),
+                  xyz(body.boundingBox.minPoint), xyz(body.boundingBox.maxPoint))
                  for body in visible_solids(root))
 
 
@@ -349,6 +351,10 @@ def render(design, kind, entities, camera, ident=None, offset=0, layout_cache=No
     group = design.rootComponent.customGraphicsGroups.add()
     if group is None: raise RuntimeError('Failed to create graphics group')
     try:
+        # Informational annotations must never mask selectable model geometry.
+        # Disable selection at the group level, including its line children.
+        group.isChildrenSelectable = False
+        group.isSelectable = False
         segments = []
         face_camera = False
         if kind == 'angle':

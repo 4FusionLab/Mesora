@@ -1,4 +1,4 @@
-"""Mesora: experimental session-only build."""
+"""Mesora: persistent informational measurements; native validation candidate."""
 import traceback
 from pathlib import Path
 import adsk.core
@@ -6,6 +6,8 @@ import adsk.fusion
 from .dimensions.fusion_geometry import measure, reference_for, resolve
 from . import renderer
 from .dimensions.batch import Batch, RowDraft, duplicate_rows
+from .dimensions.runtime_persistence import load_state, save_state
+from .dimensions.update_fingerprint import geometry_fingerprint
 
 APP = adsk.core.Application.get()
 UI = APP.userInterface
@@ -13,6 +15,9 @@ HANDLERS = []
 DEFINITIONS = []
 CONTROLS = []
 STATES = []
+WORKSPACE_CHANGING = False
+UPDATE_EVENT_ID = '4FusionLab.Mesora.GeometryUpdate'
+UPDATE_PENDING = False
 PANEL_ID = 'InspectPanel'
 INSPECT_PANELS = (
     ('FusionSolidEnvironment', 'InspectPanel'),
@@ -44,16 +49,47 @@ def bind(event, handler):
     HANDLERS.append((event, handler))
 
 
+def graphics_workspace():
+    """Do not update design graphics during a workspace transition or in Drawing."""
+    if WORKSPACE_CHANGING:
+        return False
+    try:
+        workspace = UI.activeWorkspace
+        return bool(workspace and workspace.id in {entry[0] for entry in INSPECT_PANELS})
+    except RuntimeError:
+        return False  # No active session (Home or an intermediate workspace).
+
+
+def visibility_button(button, visible, subject):
+    button.resourceFolder = icon('visibility' if visible else 'visibility_off')
+    button.tooltip = ('Hide ' if visible else 'Show ') + subject
+
+
 class State:
     def __init__(self, doc, design):
         self.doc, self.design = doc, design
         self.items, self.groups = [], []
         self.offsets = {}
         self.visible = True
+        self.hidden_ids = set()
         self.removed_for_save = False
         self.preview = None
         self.live_preview = []
         self.next_id = 1
+        self.fingerprint = None
+        self.editor_open = False
+
+    def load(self):
+        stored = load_state(self.design)
+        self.items = stored.items
+        self.offsets = stored.offsets
+        self.hidden_ids = stored.hidden_ids
+        self.visible = stored.visible
+        self.next_id = stored.next_id
+
+    def persist(self):
+        return save_state(self.design, self.items, self.offsets,
+                          self.hidden_ids, self.visible)
 
     def erase_preview(self):
         if self.preview is not None:
@@ -80,24 +116,34 @@ class State:
         if failed: raise RuntimeError('Could not remove every dimensions graphics group')
 
     def refresh(self):
+        if not graphics_workspace():
+            return []
         self.erase()
         errors = []
         if self.visible:
             for ident, kind, refs in self.items:
+                if ident in self.hidden_ids:
+                    continue
                 try:
                     entities = [resolve(self.design, ref) for ref in refs]
                     self.groups.append(renderer.render(self.design, kind, entities, APP.activeViewport.camera, ident, offset=self.offsets.get(ident, 0.0)))
                 except Exception as ex:
                     errors.append(str(ex))
         APP.activeViewport.refresh()
+        self.removed_for_save = False
+        self.fingerprint = geometry_fingerprint(self.design, self.items, resolve, measure)
         return errors
 
     def remove_item(self, ident):
         if not any(item[0] == ident for item in self.items):
             raise ValueError('Measurement not found')
         self.erase()
+        save_state(self.design, [item for item in self.items if item[0] != ident],
+                   {key: value for key, value in self.offsets.items() if key != ident},
+                   self.hidden_ids - {ident}, self.visible)
         self.items = [item for item in self.items if item[0] != ident]
         self.offsets.pop(ident, None)
+        self.hidden_ids.discard(ident)
         return self.refresh()
 
 
@@ -110,7 +156,12 @@ def current_state(create=True):
     for state in STATES:
         if state.doc == doc: return state
     if not create: return None
-    state = State(doc, design); STATES.append(state); return state
+    # Drop closed document state without writing to another document.
+    STATES[:] = [s for s in STATES if getattr(s.doc, 'isValid', True)]
+    state = State(doc, design)
+    state.load()
+    STATES.append(state)
+    return state
 
 
 def state_for(doc):
@@ -129,6 +180,9 @@ class BatchCommand:
         self.batch.next_id = current_state().next_id
         self.busy = False
         self.state = current_state()
+        if getattr(self.state, 'removed_for_save', False):
+            self.state.refresh()
+        self.visible = getattr(self.state, 'visible', True)
         self.preview_groups = self.state.live_preview
         self.row_inputs = {}
         self.layout_cache = {}
@@ -159,6 +213,8 @@ class BatchCommand:
         table = self.table
         index = table.rowCount
         label = inputs.addTextBoxCommandInput('id_' + ident, '', ident, 1, True)
+        visibility = inputs.addBoolValueInput('visible_' + ident, '', True, icon('visibility'), draft.visible)
+        visibility_button(visibility, draft.visible, ident)
         geometry = inputs.addBoolValueInput('geometry_' + ident, '', False, icon('geometry'), False)
         geometry.tooltip = 'Edit geometry for ' + ident
         dropdown = inputs.addDropDownCommandInput('kind_' + ident, '', adsk.core.DropDownStyles.TextListDropDownStyle)
@@ -168,11 +224,11 @@ class BatchCommand:
         offset.tooltip = 'Offset from automatic placement for ' + ident
         clear = inputs.addBoolValueInput('clear_' + ident, '', False, icon('clear'), False)
         clear.tooltip = 'Clear geometry in this measurement'
-        for column, item in enumerate((label, geometry, dropdown, value, offset, clear)):
+        for column, item in enumerate((label, visibility, geometry, dropdown, value, offset, clear)):
             if not table.addCommandInput(item, index, column):
                 raise RuntimeError('Cannot add measurement row')
         self.row_inputs[ident] = (draft, dropdown, value)
-        if draft.first is not None:
+        if draft.first is not None or getattr(draft, 'unresolved_refs', None):
             self.refresh_row(ident)
         if activate:
             self.start_selection(ident, 1)
@@ -206,8 +262,10 @@ class BatchCommand:
         for entity in entities:
             reference_for(entity)
         draft = self.row_inputs[ident][0]
-        if tuple(entities) == tuple(draft.entities):
+        if tuple(entities) == tuple(draft.entities) and not getattr(draft, 'unresolved_refs', None):
             return
+        draft.unresolved_refs = None
+        draft.reference_error = None
         draft.set_second(None)
         draft.set_first(entities[0] if entities else None)
         if len(entities) == 2:
@@ -221,6 +279,15 @@ class BatchCommand:
     def refresh_row(self, ident):
         draft, dropdown, value = self.row_inputs[ident]
         dropdown.listItems.clear()
+        if getattr(draft, 'unresolved_refs', None):
+            if draft.kind is not None:
+                dropdown.listItems.add(NAMES.get(draft.kind, draft.kind), True, '')
+                value.text = 'Reference unavailable — edit or clear geometry'
+                value.tooltip = str(getattr(draft, 'reference_error', 'Reference unavailable'))
+                return
+            # Explicit Clear resets kind through RowDraft.set_first(None).
+            draft.unresolved_refs = None
+            draft.reference_error = None
         if draft.options:
             selected = None
             for kind in draft.options:
@@ -267,21 +334,33 @@ class BatchCommand:
 
     def load_existing(self):
         for ident, kind, refs in self.state.items:
-            entities = [resolve(self.state.design, ref) for ref in refs]
             draft = RowDraft(ident)
-            draft.set_first(entities[0])
-            if len(entities) == 2:
-                draft.set_second(entities[1])
-                draft.set_kind('distance')
-            draft.set_kind(kind)
+            try:
+                entities = [resolve(self.state.design, ref) for ref in refs]
+                draft.set_first(entities[0])
+                if len(entities) == 2:
+                    draft.set_second(entities[1])
+                    draft.set_kind('distance')
+                draft.set_kind(kind)
+                measure(kind, draft.entities)
+            except Exception as ex:
+                # Retain the definition without displaying a stale measured value.
+                # Another row's broken token must not prevent editing this document.
+                draft = RowDraft(ident)
+                draft.kind = kind
+                draft.unresolved_refs = tuple(refs)
+                draft.reference_error = str(ex)
             draft.offset = self.state.offsets.get(ident, 0.0)
+            draft.visible = ident not in self.state.hidden_ids
             self.add_row(self.inputs, draft, activate=False)
 
     def sync_batch(self):
         drafts = [item[0] for item in self.row_inputs.values()]
-        self.batch.rows = [draft for draft in drafts if draft.complete]
-        incomplete = [draft.id for draft in drafts if (draft.first is not None or draft.second is not None) and not draft.complete]
-        return incomplete, duplicate_rows(self.batch.rows)
+        self.batch.rows = [draft for draft in drafts if draft.complete or getattr(draft, 'unresolved_refs', None)]
+        complete = [draft for draft in self.batch.rows if not getattr(draft, 'unresolved_refs', None)]
+        incomplete = [draft.id for draft in drafts if not getattr(draft, 'unresolved_refs', None)
+                      and (draft.first is not None or draft.second is not None) and not draft.complete]
+        return incomplete, duplicate_rows(complete)
 
 
 class Created(adsk.core.CommandCreatedEventHandler):
@@ -291,24 +370,27 @@ class Created(adsk.core.CommandCreatedEventHandler):
         try:
             cmd = args.command
             if self.operation == 'add':
-                cmd.setDialogInitialSize(570, 400)
-                cmd.setDialogMinimumSize(500, 300)
+                cmd.setDialogInitialSize(620, 400)
+                cmd.setDialogMinimumSize(550, 300)
                 inputs = cmd.commandInputs
                 context = BatchCommand()
+                context.command = cmd
                 context.inputs = inputs
                 context.active_selection = None
                 context.active_row = None
-                table = inputs.addTableCommandInput('measurements', 'Measurements', 6, '2:1:4:3:3:1')
+                table = inputs.addTableCommandInput('measurements', 'Measurements', 7, '2:1:1:4:3:3:1')
                 table.minimumVisibleRows = 3
                 table.maximumVisibleRows = 8
                 context.table = table
                 add = inputs.addBoolValueInput('add_row', '', False, icon('add'), False)
                 remove = inputs.addBoolValueInput('remove_row', '', False, icon('remove'), False)
                 clear_all = inputs.addBoolValueInput('clear_all', '', False, icon('delete_all'), False)
+                visibility = inputs.addBoolValueInput('visible_all', '', True, icon('visibility'), context.visible)
+                visibility_button(visibility, context.visible, 'all measurements')
                 add.tooltip = 'Add measurement'
                 remove.tooltip = 'Remove selected measurement'
                 clear_all.tooltip = 'Remove all measurements'
-                if not table.addToolbarCommandInput(add) or not table.addToolbarCommandInput(remove) or not table.addToolbarCommandInput(clear_all):
+                if not all(table.addToolbarCommandInput(item) for item in (add, remove, clear_all, visibility)):
                     raise RuntimeError('Cannot create measurement toolbar')
                 context.editor_heading = inputs.addTextBoxCommandInput('editor_heading', '', 'Select a measurement.', 1, True)
                 picker = inputs.addSelectionInput('picker', 'Objects', 'Select one or two objects')
@@ -332,6 +414,7 @@ class Created(adsk.core.CommandCreatedEventHandler):
                 bind(cmd.executePreview, Preview(context))
                 bind(cmd.destroy, DestroyPreview(context))
                 bind(cmd.execute, Execute(self.operation, context))
+                context.state.editor_open = True
             elif self.operation == 'remove_one':
                 state = current_state()
                 inputs = cmd.commandInputs
@@ -361,6 +444,13 @@ class Changed(adsk.core.InputChangedEventHandler):
                 c.remove_selected()
             elif ident == 'clear_all':
                 c.clear_all()
+            elif ident == 'visible_all':
+                c.visible = args.input.value
+                visibility_button(args.input, c.visible, 'all measurements')
+            elif ident.startswith('visible_'):
+                draft = c.row_inputs[ident[8:]][0]
+                draft.visible = args.input.value
+                visibility_button(args.input, draft.visible, draft.id)
             elif ident.startswith('geometry_'):
                 c.open_editor(ident[9:])
             elif ident == 'picker':
@@ -391,6 +481,8 @@ class Changed(adsk.core.InputChangedEventHandler):
                 c.update_status(inputs, 'Complete or clear: ' + ', '.join(incomplete))
             else:
                 c.update_status(inputs)
+            if ident.startswith('visible_'):
+                c.command.doExecutePreview()
         except Exception as ex:
             log_error()
             c.update_status(c.inputs, str(ex))
@@ -406,6 +498,8 @@ class Validate(adsk.core.ValidateInputsEventHandler):
             incomplete, duplicates = self.context.sync_batch()
             args.areInputsValid = not incomplete and not duplicates and (bool(batch.rows) or bool(self.context.state.items))
             for row in batch.rows:
+                if getattr(row, 'unresolved_refs', None):
+                    continue
                 measure(row.kind, row.entities)
                 for entity in row.entities: reference_for(entity)
         except Exception:
@@ -419,11 +513,14 @@ class Preview(adsk.core.CommandEventHandler):
         try:
             c.clear_preview()
             state = current_state()
+            if not graphics_workspace() or not c.visible:
+                args.isValidResult = False
+                return
             errors = []
             _, duplicates = c.sync_batch()
             obstacles = renderer.obstacle_signature(state.design.rootComponent) if c.batch.rows else None
             for row in c.batch.rows:
-                if row.id in duplicates: continue
+                if getattr(row, 'unresolved_refs', None) or row.id in duplicates or not row.visible: continue
                 try:
                     c.preview_groups.append(renderer.render(state.design, row.kind, row.entities, APP.activeViewport.camera, row.id, offset=getattr(row, 'offset', 0.0), layout_cache=c.layout_cache, obstacles=obstacles))
                 except Exception as ex:
@@ -440,8 +537,10 @@ class DestroyPreview(adsk.core.CommandEventHandler):
             self.context.clear_preview()
             for group in self.context.state.groups:
                 if group.isValid:
-                    group.isVisible = self.context.state.visible
+                    group.isVisible = self.context.state.visible and graphics_workspace()
         except Exception: log_error()
+        finally:
+            self.context.state.editor_open = False
 
 
 class Execute(adsk.core.CommandEventHandler):
@@ -456,27 +555,45 @@ class Execute(adsk.core.CommandEventHandler):
                 try:
                     obstacles = renderer.obstacle_signature(state.design.rootComponent) if getattr(self.context, 'layout_cache', None) is not None and self.context.batch.rows else None
                     for row in self.context.batch.rows:
-                        refs = tuple(reference_for(e) for e in row.entities)
-                        entities = [resolve(state.design, ref) for ref in refs]
-                        group = renderer.render(state.design, row.kind, entities, APP.activeViewport.camera, row.id, offset=getattr(row, 'offset', 0.0), layout_cache=getattr(self.context, 'layout_cache', None), obstacles=obstacles)
+                        unresolved = getattr(row, 'unresolved_refs', None)
+                        refs = unresolved or tuple(reference_for(e) for e in row.entities)
+                        entities = [] if unresolved else [resolve(state.design, ref) for ref in refs]
+                        group = None
+                        if not unresolved and getattr(self.context, 'visible', True) and getattr(row, 'visible', True):
+                            group = renderer.render(state.design, row.kind, entities, APP.activeViewport.camera, row.id, offset=getattr(row, 'offset', 0.0), layout_cache=getattr(self.context, 'layout_cache', None), obstacles=obstacles)
                         staged.append((row.id, row.kind, refs, group))
+                    state.erase()
+                    save_state(state.design, [(i, k, r) for i, k, r, _ in staged],
+                               {r.id: getattr(r, 'offset', 0.0) for r in self.context.batch.rows},
+                               {r.id for r in self.context.batch.rows if not getattr(r, 'visible', True)},
+                               getattr(self.context, 'visible', True))
                 except Exception:
-                    for group in [entry[3] for entry in staged]:
-                        group.deleteMe(); renderer.forget(group)
+                    for group in [entry[3] for entry in staged if entry[3] is not None]:
+                        try:
+                            if group.isValid and not group.deleteMe():
+                                state.live_preview.append(group)
+                            else:
+                                renderer.forget(group)
+                        except Exception:
+                            state.live_preview.append(group)
                     raise
-                state.erase()
                 state.items = [(ident, kind, refs) for ident, kind, refs, _ in staged]
-                state.groups = [group for _, _, _, group in staged]
+                state.groups = [group for _, _, _, group in staged if group is not None]
+                state.hidden_ids = {row.id for row in self.context.batch.rows if not getattr(row, 'visible', True)}
                 if hasattr(state, 'offsets'):
                     state.offsets = {row.id: getattr(row, 'offset', 0.0) for row in self.context.batch.rows}
                 state.next_id = self.context.batch.next_id
-                state.visible = True
+                state.visible = getattr(self.context, 'visible', True)
+                state.removed_for_save = False
+                state.fingerprint = geometry_fingerprint(state.design, state.items, resolve, measure)
             elif self.operation == 'remove_one':
                 item = args.command.commandInputs.itemById('remove_id').selectedItem
                 if item is None: raise ValueError('No measurement selected')
                 errors = state.remove_item(item.name.split(' — ', 1)[0])
                 if errors: UI.messageBox('Some dimensions cannot be resolved:\n' + '\n'.join(errors[:5]))
             elif self.operation == 'toggle':
+                state.erase()
+                save_state(state.design, state.items, state.offsets, state.hidden_ids, not state.visible)
                 state.visible = not state.visible
                 errors = state.refresh()
                 if errors: UI.messageBox('Some dimensions cannot be resolved:\n' + '\n'.join(errors[:5]))
@@ -484,7 +601,9 @@ class Execute(adsk.core.CommandEventHandler):
                 errors = state.refresh()
                 if errors: UI.messageBox('Some dimensions cannot be resolved:\n' + '\n'.join(errors[:5]))
             else:
-                state.erase(); state.items.clear(); state.offsets.clear(); APP.activeViewport.refresh()
+                state.erase()
+                save_state(state.design, [], {}, set(), state.visible)
+                state.items.clear(); state.offsets.clear(); state.hidden_ids.clear(); APP.activeViewport.refresh()
         except Exception as ex:
             log_error(); UI.messageBox('Mesora: ' + str(ex))
 
@@ -495,24 +614,25 @@ class DocumentEvent(adsk.core.DocumentEventHandler):
         state = state_for(args.document)
         if not state: return
         try:
-            if self.mode == 'saving' and (state.groups or state.preview is not None):
+            if self.mode == 'saving' and (state.groups or state.preview is not None or state.live_preview):
                 state.erase()
                 state.removed_for_save = True
+                state.fingerprint = geometry_fingerprint(state.design, state.items, resolve, measure)
             elif self.mode == 'saved' and state.removed_for_save:
-                state.removed_for_save = False
-                if state.doc == APP.activeDocument:
-                    errors = state.refresh()
-                    if errors: APP.log('Dimensions could not be restored: ' + '; '.join(errors))
-            elif self.mode == 'activated' and state.removed_for_save:
-                state.removed_for_save = False
-                state.refresh()
+                # Creating CustomGraphics dirties the document. Drawing saves its
+                # source until clean, so rendering here causes an endless save loop.
+                # Restore only on an explicit Mesora action. Drawing may also
+                # activate the source document as part of its save workflow.
+                pass
             elif self.mode == 'closing':
                 state.erase()
                 # Closing may be canceled; retain definitions until document invalidation.
         except Exception:
-            if self.mode in ('saving', 'closing'): args.isSaveCanceled = True
+            if self.mode == 'saving':
+                args.isOperationCancelled = True
+                args.cancelReason = 'Mesora could not remove informational graphics safely.'
             log_error()
-            UI.messageBox('Mesora could not remove graphics. The operation was canceled; do not save until the add-in can remove them.')
+            UI.messageBox('Mesora could not remove graphics. Do not save until the add-in can remove them.')
 
 
 class CameraChanged(adsk.core.CameraEventHandler):
@@ -521,7 +641,7 @@ class CameraChanged(adsk.core.CameraEventHandler):
         self.busy = False
 
     def notify(self, args):
-        if self.busy:
+        if self.busy or not graphics_workspace():
             return
         try:
             state = state_for(APP.activeDocument)
@@ -535,6 +655,54 @@ class CameraChanged(adsk.core.CameraEventHandler):
             log_error()
         finally:
             self.busy = False
+
+
+class WorkspaceChanged(adsk.core.WorkspaceEventHandler):
+    def __init__(self, changing):
+        super().__init__()
+        self.changing = changing
+
+    def notify(self, args):
+        global WORKSPACE_CHANGING
+        WORKSPACE_CHANGING = self.changing
+
+
+class ModelCommandEnded(adsk.core.ApplicationCommandEventHandler):
+    """Queue work after Fusion has committed the model command's transaction."""
+    def notify(self, args):
+        global UPDATE_PENDING
+        if UPDATE_PENDING or args.commandId.startswith('Mesora'):
+            return
+        state = state_for(APP.activeDocument)
+        if state is None or state.editor_open:
+            return
+        UPDATE_PENDING = APP.fireCustomEvent(UPDATE_EVENT_ID)
+
+
+class UpdateDimensions(adsk.core.CustomEventHandler):
+    def notify(self, args):
+        global UPDATE_PENDING
+        UPDATE_PENDING = False
+        try:
+            if not graphics_workspace() or UI.activeCommand != 'SelectCommand':
+                return
+            state = state_for(APP.activeDocument)
+            if state is None or state.editor_open:
+                return
+            stored = load_state(state.design)
+            definitions_changed = (stored.items != state.items or stored.offsets != state.offsets or
+                                   stored.hidden_ids != state.hidden_ids or stored.visible != state.visible)
+            if definitions_changed:
+                # Undo/Redo restores document attributes in Fusion's transaction.
+                # Runtime state must follow them, including undoing the last row.
+                state.load()
+            fingerprint = geometry_fingerprint(state.design, state.items, resolve, measure)
+            # Saving itself, camera motion, and workspace activation must never
+            # recreate graphics and restart the Drawing source-save loop.
+            if definitions_changed or (state.fingerprint is not None and fingerprint != state.fingerprint):
+                state.refresh()
+        except Exception:
+            log_error()
 
 
 def install_inspect_controls(definitions):
@@ -559,11 +727,11 @@ def run(context):
         panel = workspace.toolbarPanels.itemById(PANEL_ID) if workspace else None
         if not panel: raise RuntimeError('Solid toolbar panel unavailable')
         for suffix, title, description in [
-            ('Add','Mesora — Add Dimension','Create a session-only informational 3D dimension'),
+            ('Add','Mesora — Add Dimension','Create and manage informational 3D measurements'),
             ('Toggle','Show/Hide Dimensions','Toggle dimensions in this document'),
             ('Refresh','Refresh Dimensions','Recalculate dimensions in this document'),
-            ('Remove','Remove Dimension','Remove one session dimension by ID'),
-            ('Clear','Clear Dimensions','Remove session dimensions in this document')]:
+            ('Remove','Remove Dimension','Remove one measurement by ID'),
+            ('Clear','Clear Dimensions','Remove measurements in this document')]:
             ident = 'Mesora' + suffix
             definition = UI.commandDefinitions.itemById(ident)
             if definition: definition.deleteMe()
@@ -576,22 +744,37 @@ def run(context):
         install_inspect_controls(DEFINITIONS)
         bind(APP.documentSaving, DocumentEvent('saving'))
         bind(APP.documentSaved, DocumentEvent('saved'))
-        bind(APP.documentActivated, DocumentEvent('activated'))
         bind(APP.documentClosing, DocumentEvent('closing'))
         bind(APP.cameraChanged, CameraChanged())
+        bind(UI.workspacePreDeactivate, WorkspaceChanged(True))
+        bind(UI.workspacePreActivate, WorkspaceChanged(True))
+        bind(UI.workspaceActivated, WorkspaceChanged(False))
+        update_event = APP.registerCustomEvent(UPDATE_EVENT_ID)
+        if not update_event:
+            raise RuntimeError('Could not register Mesora geometry update event')
+        bind(update_event, UpdateDimensions())
+        bind(UI.commandTerminated, ModelCommandEnded())
     except Exception:
         log_error(); stop(context); UI.messageBox('Mesora failed to start. See Text Commands log.')
 
 
 def stop(context):
+    global WORKSPACE_CHANGING, UPDATE_PENDING
+    WORKSPACE_CHANGING = False
+    UPDATE_PENDING = False
+    failed_states = []
     for state in STATES:
         try: state.erase()
-        except Exception: log_error()
-    STATES.clear()
+        except Exception:
+            failed_states.append(state)
+            log_error()
+    STATES[:] = failed_states
     for event, handler in reversed(HANDLERS):
         try: event.remove(handler)
         except Exception: pass
     HANDLERS.clear()
+    try: APP.unregisterCustomEvent(UPDATE_EVENT_ID)
+    except Exception: log_error()
     for control in reversed(CONTROLS):
         try: control.deleteMe()
         except Exception: pass

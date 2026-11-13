@@ -1,0 +1,61 @@
+# Mesora: нативная проверка стабильности, 13.11.2026
+
+**Решение: stable не публиковать.** Кейс использования проекта без Mesora выявил устаревшую неуправляемую аннотацию после сохранения и reopen. Windows Fusion, полная проверка restart и штатная последовательность UI-событий финального кандидата не приняты.
+
+## Среда и границы доказательства
+
+macOS, Autodesk Fusion `2706.1.17`. Проверял основной агент, единственный владелец общей Fusion-сессии. База checkout: `a28bedb`, с текущими изменениями кандидата. Все изменения геометрии и сохранения выполнялись только на двух новых синтетических цилиндрах в тестовой области `_Preferences`. Открытую пользовательскую модель не редактировали, не сохраняли и не закрывали. Полный restart Fusion не выполняли из-за открытого изменённого пользовательского документа.
+
+Вызовы Fusion API проходили через MCP script. Запуск команды через `CommandDefinition.execute()` не оставлял открытый Mesora-диалог; прямые UI-действия не дали подтверждённого изменения интерфейса. Поэтому данные ниже **не являются** приёмкой реального OK/Cancel или порядка UI save/commandTerminated events. Прямой вызов `notify` отмечен отдельно; он проверяет обработчик на настоящей CAD-геометрии, но не доставку события.
+
+## S19: модель без Mesora — FAIL
+
+Фикстура `Mesora stable acceptance 2026-11-13`:
+
+1. Создан цилиндр радиусом 2 cm и высотой 4 cm. Через рабочий `Execute('add')` записаны две строки: скрытый `m1` Radius и видимый `m2` Edge Length; одна graphics group. В attributes — schema v2, references, offsets и индивидуальная видимость.
+2. `Document.saveAs(...)` вернул `True`. После возврата и повторной проверки: `isModified=False`, одна tracked group, `removed_for_save=False`. Предсохранительная очистка при этом пути не выполнилась. Точную причину отсутствия очистки/доставки события в MCP-контексте считать открытой; не переносить этот результат на непроверенный UI Save.
+3. Mesora остановлена, документ закрыт без дополнительных изменений, сохранённая версия открыта снова. Mesora controls отсутствуют, одно BRep body, `customGraphicsGroups.count=0`, документ чистый. **Визуально размер m2 всё ещё виден.**
+4. Без Mesora радиус изменён с 2 до 2.5 cm. Сохранение вернуло `True`, close/reopen успешны, радиус остаётся 2.5 cm, одно body, API graphics count по-прежнему 0, документ чистый.
+5. Визуально по-прежнему видна старая подпись `m2 L=125.7 mm`, хотя актуальная окружность имеет длину около 157.1 mm. Модель геометрически доступна для работы без аддина, но полная совместимость **не принята** из-за ложной аннотации.
+
+Снимки только синтетического viewport сохранены локально, не включены в пакет:
+
+- `dist/local-validation/orphan-without-mesora.png` — после reopen с остановленным Mesora;
+- `dist/local-validation/orphan-after-model-edit.png` — устаревшая подпись после изменения радиуса и save/reopen.
+
+Оба снимка просмотрены. CAD-архивы не изменялись для обхода дефекта; пользовательские файлы и версии не удалялись.
+
+SHA-256 `orphan-after-model-edit.png`: `47c07c3a99df266aa8c1e12a354f6dccb5c8963172855bb3e61238e891f02c27`.
+
+## Контрольный путь с явной очисткой — частичный PASS
+
+Фикстура `Mesora safe UI acceptance 2026-11-13`:
+
+1. Сначала сохранён чистый цилиндр без графики. Затем через рабочий `Execute('add')` применены два измерения: `m1` hidden, offset 0.2 cm; `m2` visible, offset 0.3 cm. В памяти и storage две строки, одна graphics group.
+2. Радиус sketch circle изменён с 1.5 до 2 cm. **Прямо вызван** `UpdateDimensions.notify`. Fingerprint изменился, graphics group перестроилась, измеренная длина актуальной edge составила `12.566370614359172 cm`. Это подтверждает работу обработчика с настоящей геометрией; автоматический event-trigger остаётся PENDING.
+3. **Прямо вызван** `DocumentEvent('saving').notify` перед API save. После обработчика groups=0, removed_for_save=True. Save=True, документ чистый.
+4. Mesora остановлена, close/reopen без Mesora: groups=0, body=1, документ чистый. Снимок `dist/local-validation/prepared-save-without-mesora.png` просмотрен — остаточных размеров нет.
+5. Mesora снова запущена. `current_state` загрузил две строки, hidden_ids=`m1`, offsets=`0.2/0.3`, next_id=3. Ссылка m2 разрешена, актуальная длина `12.566370614359172 cm`; явный Refresh без ошибок создал одну группу.
+6. Тестовый документ закрыт; пользовательский документ оставлен открытым. Mesora запущена. Run on Startup ранее был включён, настройку в этом прогоне не меняли.
+
+Этот путь доказывает сохранение определений и полезность очистки. Он **не закрывает** требования нормального Save/Save As/restart без ручной подготовки и не заменяет S19 FAIL.
+
+SHA-256 контрольного `prepared-save-without-mesora.png`: `098843b277603d26619d798adfa1661b5a66e4e8ed763b6585408446b3d226fe`.
+
+## Локальные quality gates
+
+На итоговом рабочем кандидате прошли компиляция, **103 offline tests**, `scripts/check_project.py`, `git diff --check`. Проверена детерминированная сборка 54 файлов с новыми модулями и четырьмя иконками; UUID сохранён. Локальный ZIP `dist/stability-validation/Mesora-0.0.0.zip` имеет SHA-256 `fff5e84dab85c95b2eb28bd194120381ba4b8ded12af7aa0e5a2b15cba75cdfc`. `0.0.0` — только числовая заглушка для проверки упаковки, не назначенная версия релиза. Штатную версию определяет GitVersion 6.8.2. Этот ZIP не публиковать как stable.
+
+## Необходимая повторная проверка
+
+Сначала устранить попадание CustomGraphics в сохраняемое состояние либо подтвердить другой способ отображения. `isModified` не подделывать, вымышленные transient-флаги не вводить. После исправления повторить все пути Save/Save As/cancel/failure/recovery, close/reopen, restart и работу без аддина с визуальными снимками. Затем принять model edits, Undo/Redo, Drawing, несколько документов и установку финального ZIP отдельно на macOS и Windows.
+
+Предыдущий Drawing/visibility прогон находится в [отдельном отчёте](drawing-visibility-2026-11-13.ru.md). Его PASS не переносится автоматически на текущие persistence/update изменения. Полная [матрица CJM](stable-release-cjm-2026-11-13.ru.md) сохраняет PENDING и FAIL.
+
+## API-основания
+
+- [DocumentEventArgs](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_DocumentEventArgs.htm): установленный API имеет `isOperationCancelled` и `cancelReason`; `isSaveCanceled` отсутствует. Исправлен используемый символ. Реальная отмена сохранения при fault-injection ещё не принята.
+- [Custom event queue](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_Application_fireCustomEvent.htm): работа выполняется в основном потоке при idle; перед refresh дополнительно исключается активная native-команда.
+- [CustomGraphics persistence report](https://forums.autodesk.com/t5/fusion-support-forum/bug-report-custom-graphics-serialized-into-a-document-are/td-p/14142906): внешнее описание похожего дефекта; решение о блокировке основано на нашем воспроизведении выше.
+
+Релиз не опубликован; сообщение пользователю Telegram о готовом релизе не отправляется до успешного выпуска.
