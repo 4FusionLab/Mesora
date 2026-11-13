@@ -1,9 +1,9 @@
 # Mesora: CJM и приёмка стабильного релиза
 
-> **Актуальный итог: macOS-приёмка ПРИНЯТА; нативных блокирующих gates не осталось в авторизованном scope.** Root принял независимый verdict; условие пользователя для снятия experimental выполнено. Техническая публикация ещё ожидается: финальная EN/RU документация/metadata, зелёная CI публикуемого commit, штатный GitVersion ZIP/checksum/notes и immutable Release. Новых Fusion API/UI или CAD-save действий не требуется и не выполняется. Исторические OPEN/FAIL ниже показывают развитие и не отменяют заключение последнего раздела; подробные границы покрытия сохранены.
+> **Актуальный итог: [Mesora 1.1.0 опубликована](https://github.com/4FusionLab/Mesora/releases/tag/v1.1.0), macOS-приёмка и технические gates ПРИНЯТЫ.** Открытых blocker/major в авторизованном scope нет. 144 tests, native macOS acceptance, все три CI/package платформы и publishing job прошли; скачанный ZIP, embedded version/UUID и SHA-256 проверены. Experimental-маркировка снята. Windows нативно не проверялась; исторические OPEN/FAIL и ограничения ниже не являются текущими блокерами.
 
 
-Дата: 13.11.2026. Рабочий документ приёмки; не свидетельство завершённой CAD-проверки.
+Дата: 13.11.2026. История и итоговая матрица согласованной macOS-приёмки; непроверенные случаи обозначены отдельно.
 
 ## Продуктовая цель
 
@@ -275,7 +275,7 @@ D07 остаётся **OPEN**. Root запросил новую оценку п�
 
 Предыдущие секции OPEN описывают последовательность разработки до пользовательского подтверждения; текущие статусы определяются этой записью и таблицей D07. Preview→Escape с восстановлением6 групп и cleanup16 apphandlers/0 scopes, а также no-op Enter→Select с6 группами были проверены до последней camera-only правки; a77502e не меняет эти apply/cancel пути. Исторические file-save/Drawing/ownership proofs остаются на своих ревизиях: перенос на текущую основан на том, что camera-only policy не добавляет рендер/attribute/save hooks и непосредственно исключает camera repack, а не на вымышленном новом Save. Если изменятся соответствующие пути, потребуется затронутый retest, но **без запрещённого CAD-save**.
 
-## Критический остаток Mac-приёмки после закрытия D07
+## Критический остаток Mac-приёмки после закрытия D07 (исторический план, закрыт пакетами ниже)
 
 Этот список заменяет прежние открытые планы как **текущее действие**. Новые CAD-save/Save As/export/fault-save не выполняются по прямому запрету пользователя. Нет ожидания Read Only, cloud slot или ответа по сохранению. Исторические Save/reopen/Drawing/graceful restart доказательства сохраняются; новые7-type file roundtrip и реальный failed cloud save честно остаются непроверенными ограничениями, а не задачами вопреки пользователю.
 
@@ -317,6 +317,10 @@ Root принял независимое macOS-заключение. Польз�
 
 По текущему просмотру рабочего дерева HEAD runtime **a77502e**, новые незакоммиченные изменения касаются README и документации. Последующая согласованная правка product description/branding в manifest/project metadata не меняет Python runtime semantics или стабильные UUID/command IDs и сама по себе **не требует повторной CAD-приёмки**. Финальный root review должен удостовериться, что в релизный commit действительно входят лишь эти branding/docs изменения сверх принятого runtime; если появится behavioral diff, оценить только затронутые regressions.
 
-Технический релиз **PENDING** до фактической публикации и проверки результатов. Root завершает работу через существующий PR и последнюю CI, штатные GitVersion/publishing workflows, без ручных tags или перезаписи assets. Проверяются final version, installable ZIP, embedded manifest, SHA-256, release notes и ссылка на опубликованный артефакт. Эта запись не утверждает наличие опубликованного Release до того, как workflow завершён.
+Технический релиз **COMPLETED**: [1.1.0](https://github.com/4FusionLab/Mesora/releases/tag/v1.1.0), commit `ecdc98556a20bb9d71f5630cc70a1b156e97c217`, main CI run17 success. Скачанный installable ZIP содержит56 файлов и manifest1.1.0; SHA-256 `4790d87dbfad91834c9ba3863943a9e23974130cd58c3f87dc38418ed9938c2b` совпал с checksum, asset digest и воспроизводимым preflight. Tag/бинарные assets не заменялись.
 
 Fusion-сессия возвращена Planara QA с подтверждением. Mesora root/агенты не обращаются к живой Fusion через GUI/API; принятую CAD-приёмку не повторяют ради branding. Новые тестовые CAD-файлы не сохраняются; очистка созданных4 cloud fixtures уже подтверждена root.
+
+## Итоговая проверка публикации
+
+Final PR commit011e9bc прошёл CI run16, затем принят в main commit ecdc985 через PR #3. Main run17 success создал final Release1.1.0 штатным GitVersion/publishing workflow. Проверены скачанные ZIP/checksum, embedded version/UUID,56files, наличие новых runtime modules, отсутствие helpers и совпадение с принятой сборкой. Scope/limits выше остаются честными. Исправление двух URL в release notes — только редактирование текста metadata, без замены tag или assets.

@@ -1,6 +1,6 @@
 # Mesora: нативная проверка стабильности, 13.11.2026
 
-**Текущий итог: macOS-приёмка принята; публикационный gate выполняется.** На `a77502e` закрыты D06 (graphics ownership после Undo/Redo) и D07 (наложения и скачки при orbit). После возвращения Fusion из Planara дополнительно прошли 13 реальных UI-переходов типов и сверка цилиндрического периметра с native Measure. Нативная установка ZIP, фактический выбор мышью, семь типов, вложенные трансформированные ссылки, Drawing, штатный restart и работа без Mesora подтверждены в указанном ниже scope. 144 offline tests и CI run15 прошли. Windows Fusion нативно не проверялась и по решению пользователя не блокирует выпуск. Маркировка экспериментального продукта снимается; финальные метаданные, документация и опубликованные артефакты проходят отдельные технические проверки. Ниже сохранена история прежних ревизий, а не текущие открытые дефекты.
+**Текущий итог: [Mesora 1.1.0 опубликована](https://github.com/4FusionLab/Mesora/releases/tag/v1.1.0), macOS-приёмка и публикационные gates пройдены.** Проверены 144 offline tests, native macOS scope, CI Linux/macOS/Windows, реальная установка ZIP и скачанные release assets. Тег v1.1.0 указывает на `ecdc98556a20bb9d71f5630cc70a1b156e97c217`; ZIP/манифест/checksum согласованы. Текущее experimental-обозначение снято по выполненному условию пользователя. Windows Fusion нативно не проверялась; границы evidence сохраняются. Ниже — история прежних ревизий и результаты, а не открытые дефекты текущего релиза.
 
 ## Начальный прогон: среда и границы доказательства (история)
 
@@ -210,3 +210,11 @@ Measure закрыт, selection очищен; TypeProbe остановлен/о�
 ## Preflight стабильного пакета 1.1.0
 
 GitVersion 6.8.2 в PR CI определил MajorMinorPatch=1.1.0. После снятия текущего experimental-обозначения прошли 144 tests, validator, compileall и diff check; RU README alias совпадает. Две независимые сборки `Mesora-1.1.0.zip` побайтно одинаковы, SHA-256 `4790d87dbfad91834c9ba3863943a9e23974130cd58c3f87dc38418ed9938c2b`. Сравнение с нативно установленным проверочным ZIP подтвердило одинаковые 56 файлов и идентичный runtime: отличаются только первая строка docstring Mesora.py и description/version манифеста. Stable UUID и прочие поля манифеста сохранены. Финальная публикация и проверка скачанных assets выполняются штатным pipeline, без ручных tags.
+
+## Публикация и проверка скачанных артефактов
+
+PR #3 объединён проверенным squash commit `ecdc98556a20bb9d71f5630cc70a1b156e97c217`. [Main workflow run17](https://github.com/4FusionLab/Mesora/actions/runs/43481689168) успешно выполнил metadata/version/release-eligibility, все три offline/package jobs и publishing job. GitVersion 6.8.2 выпустил **1.1.0**; тег создан только штатным pipeline и указывает на этот commit. Release опубликован как final, не draft/prerelease.
+
+Root скачал из опубликованного Release `Mesora-1.1.0.zip` и `.zip.sha256`. ZIP проходит testzip, содержит 56 файлов с единственной корневой папкой Mesora; embedded manifest version1.1.0, stableUUID89072f8c-cdca-48bf-8a2a-440c9ae898e6, description без experimental. SHA-256: `4790d87dbfad91834c9ba3863943a9e23974130cd58c3f87dc38418ed9938c2b`. Он совпадает с опубликованным checksum, GitHub asset digest и локальной воспроизводимой preflight-сборкой; ZIP совпадает побайтно.
+
+После публикации исправлены только две относительные ссылки в тексте release notes: русская версия и матрица evidence получили абсолютные URL. Разрешённое редактирование notes сохранило тот же release ID, tag target, published_at, asset IDs/sizes/digests; tag/ZIP/checksum не заменялись. Соответствующая документация и итоговый протокол обновлены отдельным docs-only commit. Новых CAD-save или Fusion вызовов для этого не выполнялось.
