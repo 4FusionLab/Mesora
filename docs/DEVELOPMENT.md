@@ -2,60 +2,73 @@
 
 [Русская версия](DEVELOPMENT.ru.md)
 
-`Mesora/Mesora.py` contains the Fusion command and event lifecycle; `Mesora/renderer.py` handles graphics, and `Mesora/dimensions/` contains measurement and layout logic. The top-level `dimensions/` directory is retained as historical offline code; the shipped package is `Mesora/`.
+`Mesora/Mesora.py` owns commands and events, `Mesora/renderer.py` owns graphics,
+and `Mesora/dimensions/` contains measurement, persistence and layout logic. The
+top-level `dimensions/` directory is historical offline code; the shipped package
+is `Mesora/`.
 
-## Offline checks and package
+## Checks and packaging
 
 ```sh
-python3 scripts/check_project.py
 python3 -m unittest discover -s tests -v
-python3 scripts/build.py --version 1.0.0
+python3 scripts/check_project.py
 ```
 
-The builder writes a deterministic ZIP and SHA-256 in `dist/`. The manifest version in the archive is stamped without changing the checkout. CI checks Linux, macOS and Windows; it does not run Fusion.
+Build with the numeric version resolved by GitVersion 6.8.2, for example after
+setting `MESORA_PACKAGE_VERSION` to that result:
 
-## Candidate status and persistence
+```sh
+python3 scripts/build.py --version "$MESORA_PACKAGE_VERSION"
+```
 
-The current source is an experimental validation candidate, not an accepted stable
-release. Explicit command commits store references and settings in design
-attributes through `dimensions/runtime_persistence.py`; values are recalculated.
-Schema v2 supports all current measurement types and reads schema v1. Unknown,
-corrupted or future data must not be silently overwritten. Automatic model updates
-use `commandTerminated` and a deferred custom event. Loading on document open and
-startup requests a restore; activation resumes an existing request and saving
-clears it. Managed macOS GUI testing confirmed startup/reopen restoration,
-visibility application, Save/Save As cleanup and Save As cancellation. Undo/Redo
-restored visibility metadata, but graphics Undo failed: a revived untracked group
-plus deferred rendering produced two actual groups while State tracked one.
-Cleanup correction and native retesting remain required.
-The checked model reopened without dimensions while Mesora was stopped, remained
-editable/savable, and restored current measurements when Mesora started.
+The builder writes a deterministic ZIP and SHA-256 in `dist/` and stamps the archive
+manifest without changing the checkout. Check the manifest, archive contents,
+checksum and release notes together. CI checks Linux, macOS and Windows; it does
+not run Fusion. The accepted runtime passed 144 offline tests and
+[CI run 15](https://github.com/4FusionLab/Mesora/actions/runs/43475119273).
+The 56-file package was installed and exercised in macOS Fusion.
 
-Earlier orphan findings came from a different Python loading/API path and do not
-establish a failure of the current managed GUI save path. Separately rerun API
-Save/Save As with managed startup. Manual **Refresh Dimensions** after save remains
-a workaround, and full save/recovery acceptance is incomplete.
+## Runtime contracts
 
-For independent event evidence, run the development observer through Fusion's
-managed add-in lifecycle, using `scripts/prepare_native_observer.py`. A direct
-MCP import did not deliver observer callbacks and cannot establish their absence
-in the managed product. Neither observer script is part of the shipped add-in.
-
-Parametric acceptance was interrupted during CUA accessibility inspection of
-Change Parameters; the observed AX/Qt stack does not establish Mesora causality.
-Manual recovery was requested without force terminating an unsaved user document.
-This scenario remains inconclusive. Stable publication is withheld pending
-Undo graphics cleanup/retesting, parametric changes, latest-candidate Drawing, full Fusion restart, Windows and
-remaining save/recovery gates. See the
-[native report](validation/stability-native-2026-11-13.ru.md),
-[observer/recovery notes](validation/observer-and-ax-recovery-2026-11-13.ru.md) and
-[CJM and acceptance traceability](validation/stable-release-cjm-2026-11-13.ru.md).
+- Explicit commits store references, types, offsets and visibility through
+  `dimensions/runtime_persistence.py`. Schema v2 reads v1; unknown, damaged and
+  future payloads must not be silently overwritten. Recalculate values from geometry.
+- Model commands queue updates through `commandTerminated` and a custom event.
+  Opening/startup loads definitions; activation resumes an existing restore request.
+  Render only in the permitted Fusion context.
+- Refresh/save/stop reconcile owned graphics by their IDs, including fresh wrappers
+  revived by Undo. Preserve other add-ins' groups and staged command graphics.
+- Arrange captions for explicit preview, commit, model refresh and restoration.
+  Camera events only orient text: do not repack captions or rebuild angular arcs.
+- Saving removes graphics and clears the restore request. Do not recreate them in
+  `documentSaved`; explicit Mesora/Refresh restores display after a save.
+- Retain active handlers and detach command scopes on destruction. Cancel must
+  restore the committed set without applying draft visibility or offsets.
 
 ## Native acceptance
 
-For the Drawing save-loop regression and row/global visibility controls, follow the
-checks in [Visibility and Drawing](visibility-and-drawing.md).
+The final independent review found no open Blocker or Major in the authorized
+macOS release scope. Native type probing confirmed 13 actual UI events; Inspect
+on the same cylindrical face reported Loop Length 339.292 mm, Area 5089.38 mm²,
+Radius 27 mm and Diameter 54 mm, matching Mesora. Previous evidence also covers
+Undo/Redo ownership, model update/Undo/Redo, save/reopen, Save As, Drawing transition,
+normal restart, nested/transformed reference measurements and operation without
+Mesora. The reproduced caption-overlap/orbit case passed user acceptance.
 
-Use disposable designs. Check installation and command lifecycle, picking and cancellation, measurement types, units and camera movement, transformed and nested occurrences, and multiple documents. Test save, Save As, cancellation, failed save, close and reopen in both macOS and Windows, including a full Fusion restart. For each save path, stop the add-in and inspect reopened files visually as well as checking group counts. Acceptance of all CustomGraphics save/reopen paths is **not complete**; do not save valuable designs while the add-in is running. See [Fusion safety notes](fusion-safety.md).
+Keep scope precise: the parameter-change transaction test is not manual Change
+Parameters UI acceptance, and the Drawing check canceled Base View placement.
+Windows Fusion, real failed-cloud-save recovery and exhaustive geometry/picking
+combinations remain unverified. Windows unavailability is not a separate release
+blocker under the accepted macOS scope. See [coverage](fusion-safety.md),
+[native evidence](validation/stability-native-2026-11-13.ru.md) and
+[traceability](validation/stable-release-cjm-2026-11-13.ru.md).
 
-Release automation and immutable tags follow [release policy](../.github/RELEASE_POLICY.md). Mesora is distributed under PolyForm Noncommercial 1.0.0; commercial use outside its permitted purposes requires a separate agreement.
+For new regressions use synthetic documents. Saved acceptance fixtures were removed;
+follow the user's current no-CAD-save constraint rather than creating new cloud files.
+Event evidence requires an observer run as a managed Fusion add-in. Direct MCP
+import did not deliver observer callbacks and cannot prove their absence in the
+managed product. Development observer/driver scripts are excluded from the ZIP.
+
+Publishing and immutable tags follow [release policy](../.github/RELEASE_POLICY.md).
+Mesora uses [PolyForm Noncommercial 1.0.0](../LICENSE); commercial use outside its
+permitted purposes requires a separate agreement.

@@ -1,4 +1,4 @@
-"""Mesora: persistent informational measurements; native validation candidate."""
+"""Mesora: persistent informational 3D measurements."""
 import traceback
 from pathlib import Path
 import adsk.core

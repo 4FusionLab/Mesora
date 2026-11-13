@@ -1,8 +1,8 @@
 # Mesora: нативная проверка стабильности, 13.11.2026
 
-**Решение: stable пока не публиковать.** В прогоне с управляемым запуском Fusion (`f090654`) штатный GUI Save и использование модели без Mesora приняты на macOS для синтетической фикстуры, но подробный trace выявил дублирование графики после Undo (D06). Для D06 реализовано исправление ownership с офлайн-регрессиями; нативный повтор ещё не выполнен. Первоначальный orphan получен другим способом перезагрузки Python и не является доказательством неисправности нынешнего штатного GUI-пути. Параметрическое изменение, полный restart, актуальный Drawing и Windows Fusion ещё не приняты.
+**Текущий итог: macOS-приёмка принята; публикационный gate выполняется.** На `a77502e` закрыты D06 (graphics ownership после Undo/Redo) и D07 (наложения и скачки при orbit). После возвращения Fusion из Planara дополнительно прошли 13 реальных UI-переходов типов и сверка цилиндрического периметра с native Measure. Нативная установка ZIP, фактический выбор мышью, семь типов, вложенные трансформированные ссылки, Drawing, штатный restart и работа без Mesora подтверждены в указанном ниже scope. 144 offline tests и CI run15 прошли. Windows Fusion нативно не проверялась и по решению пользователя не блокирует выпуск. Маркировка экспериментального продукта снимается; финальные метаданные, документация и опубликованные артефакты проходят отдельные технические проверки. Ниже сохранена история прежних ревизий, а не текущие открытые дефекты.
 
-## Среда и границы доказательства
+## Начальный прогон: среда и границы доказательства (история)
 
 macOS, Autodesk Fusion `2706.1.17`. Проверял основной агент, единственный владелец общей Fusion-сессии. База checkout: `a28bedb`, с текущими изменениями кандидата. Все изменения геометрии и сохранения выполнялись только на двух новых синтетических цилиндрах в тестовой области `_Preferences`. Открытую пользовательскую модель не редактировали, не сохраняли и не закрывали. Полный restart Fusion не выполняли из-за открытого изменённого пользовательского документа.
 
@@ -134,3 +134,79 @@ Fusion самостоятельно восстановила удалённую 
 - [CustomGraphics persistence report](https://forums.autodesk.com/t5/fusion-support-forum/bug-report-custom-graphics-serialized-into-a-document-are/td-p/14142906): внешнее описание похожего дефекта; решение о блокировке основано на нашем воспроизведении выше.
 
 Релиз не опубликован; сообщение пользователю Telegram о готовом релизе не отправляется до успешного выпуска.
+
+## Итог повторной приёмки fe68881
+
+### Ownership и Undo/Redo
+
+В Fusion подтверждено сохранение ownership `CustomGraphicsGroup.id` при настоящем Undo. Дополнительная регрессия неизменных definitions/fingerprint потребовала сверять реальные owned IDs с валидными tracked wrappers; исправление вошло в `fe68881`. No-op OK → UI Undo/Redo сохраняет tracked=valid=actual=owned=1. Скрытие второй строки даёт 0/0; Undo возвращает 1/1, Redo — 0/0, повторный Undo — 1/1. GUI Save копии v1→v2, managed stop, close/reopen без аддина: clean, actual=0, визуально нет размеров (`ownership-undo-save-no-addon.png`). **D06 RETEST PASS в этом macOS scope.**
+
+### Параметрическое изменение
+
+После сбоя Parameters Fusion показала Crash Reporter. Он закрыт без отправки отчёта; процесс завершился самостоятельно. После запуска recovery list закрыт без открытия или удаления файлов. Это не доказательство восстановления пользовательского документа. Qt Accessibility stack не устанавливает причину сбоя Mesora.
+
+Вместо повторного чтения проблемной AX-таблицы использован отдельный managed development command `FourFusionLabAcceptanceRadius`: меняет только d3 в указанной синтетической копии, в собственной Fusion-транзакции; не вызывает Mesora handlers. Радиус 23→27 mm автоматически изменил label 144.5→169.6 mm без Refresh. Фактическая длина 16.964600329384883 cm, fingerprint актуален, tracked=valid=actual=owned=1. GUI Edit → Undo Multiple → Undo Acceptance Radius вернул 144.5 mm; GUI Redo без промежуточных MCP-вызовов вернул 169.6 mm. Оба состояния проверены визуально. Это native SDK-command acceptance; ручное редактирование в Parameters остаётся INCONCLUSIVE.
+
+### Drawing
+
+`NewFusionDrawingDocumentCommand` запущена при видимой графике. В managed observer session `622f1b9a-2259-4479-a9d5-9dc7fb1b7e2b`: saving108 видит group1, saved109 — group0, clean. Source копия v2→v3 ровно один раз. Открыт `FusionDocumentationEnvironment` с настоящим листом и Drawing View. Размещение base view отменено, несохранённый тестовый Drawing закрыт через Don't Save. Возврат в source: v3, isModified=False, tracked=actual=0, radius2.7 cm. Сценарий создания листа и source-save loop принят; размещение/оформление видов не заявляется.
+
+### Штатный полный restart и работа без Mesora
+
+Оба development add-ins остановлены. Единственная открытая модель — синтетическая чистая копия v3. Выполнен Cmd+Q; отсутствие процесса Fusion подтверждено до нового запуска. Обычный launch прошёл через Preparing your experience в Home, без Crash Reporter. Открытие копии v3 при автоматически запущенной Mesora: isRunning=True, isRunOnStartup=True, 2 definitions, hidden m1, tracked=actual=1, radius2.7 cm; визуально label169.6 mm.
+
+Затем Mesora остановлена, копия закрыта через Don't Save (отбрасывается только отрисованная сессионная графика), v3 открыта вновь: isModified=False, actual=0, radius2.7 cm, Mesora isRunning=False. Визуально размеров нет. Исходный файл v4 и копия v3 затем открыты одновременно без аддина: исходник radius2.3 cm, копия radius2.7 cm, оба clean и actual0. Подтверждена независимость геометрии Save As; отдельный цикл редактирования definitions в копии не заявляется. В конце штатный запуск Mesora восстановлен; Run on Startup сохранён.
+
+### Проверки и оставшиеся gates
+
+Повторно **122 offline tests PASS**, project validator PASS. CI для runtime `fe68881`: [run12 success](https://github.com/4FusionLab/Mesora/actions/runs/43462948414), Linux/macOS/Windows — код и ZIP, не Fusion.
+
+Финальная локальная проверочная сборка: `Mesora-0.0.0.zip`, SHA-256 `157c00aa5726d097d837c17b635cdfaf81e316241158bc63bfbc7130ed4f19c0`. Числовая заглушка 0.0.0 не является версией для публикации. Development observer/driver не входят в ZIP.
+
+Пользователь подтвердил отсутствие доступной Windows с Fusion и уточнил publication scope: успешные обязательные gates macOS достаточны для выпуска и снятия experimental. Windows остаётся отдельно UNVERIFIED и сама по себе не блокирует выпуск. PR остаётся draft, main не изменяется, релиз и Telegram-анонс не выполнены.
+
+## Уточнения пользователя и текущий открытый дефект
+
+После указания не сохранять тестовые файлы все дальнейшие сохранения CAD/экспорты тестовых моделей остановлены. Запрос перевода тестового файла в Read-Only отменён. По явному запросу пользователя root закрыл без сохранения два открытых saved fixtures и удалил четыре ранее созданных синтетических облачных файла: Mesora safe UI acceptance 2026-11-13, Mesora stable acceptance 2026-11-13, Mesora Save As acceptance 2026-11-13 и Mesora visibility acceptance. `DataFile.deleteMe()` вернул True для каждого; повторный поиск Mesora в `_Preferences` вернул 0. Пользовательские модели не затронуты. Открыт один несохранённый synthetic all-types fixture для визуального исправления.
+
+На нём управляемый независимый SDK harness подтвердил все семь численных типов и roundtrip settings в attributes, real deleted reference retention и отказ перезаписывать corrupt/future schema. Настоящая Mesora GUI показала восемь строк (семь типов плюс недоступная ссылка), Enter сохранил восемь definitions в несохранённой модели. Изменение типа edge_length→radius показало 27.0 mm; Escape отменил эту правку и изменение глазика. GUI очистка недоступной геометрии и удаление только этой строки оставили все семь остальных типов. Это не приёмка создания каждого типа мышью и не файловый roundtrip.
+
+Обнаружено неограниченное удержание command handlers. Исправление `6a0663e` освобождает command scopes при destroy. **128 offline tests PASS**. Нативно: Add open appHANDLERS16/scopes1/bindings5, Escape appHANDLERS16/scopes0/editorFalse; второй Add с изменением глазика и OK оставил appHANDLERS16/scopes0 и valid=tracked=actual=6. Прежний pipeline PASS относится к fe68881, не этому новому commit.
+
+**D07 Major OPEN:** при одновременном отображении шести размеров на текущей геометрии подписи перекрываются и плохо читаются. Это реальный провал визуальной приёмки, независимо от численного PASS. Снимок до исправления: `dist/local-validation/caption-overlap-before.png`. Исправление совместного размещения подписей и повторная визуальная проверка в работе. Experimental пока не снимается.
+
+## Исправление наложений и окончательное решение для orbit
+
+Первая версия совместного размещения устранила статические наложения, но пользователь подтвердил скачки при вращении. Предпочтение предыдущей позиции на `8129f2f` дало нулевое смещение на отдельных 2°/14° samples, однако обычное пользовательское вращение всё ещё прыгало. Эти samples не закрывали дефект.
+
+В `a77502e` CameraChanged **только ориентирует текст**: размещение подписей не пересчитывается вообще, геометрия угловой дуги заморожена после рендера. Раскладка выполняется при явном добавлении/изменении набора, Refresh и восстановлении набора. Удалён промежуточный перенос текста к base и обратно. В почти реберном ракурсе первоначальное размещение использует устойчивую видимую ось; Retina-проекция нормализуется.
+
+После managed reload проверено фактически загруженное code object: cameraRepack=False, angleRebuild=False. Настоящие изменения Camera на 45°, 90° и возврат 0° дали на каждом шаге WORLD anchorDeltas=[0,0,0,0,0,0], неизменный массив координат дуги, tracked=actual=6. Пользователь повторил обычное вращение и сообщил: **«Теперь не скачут»**. D07 закрыт для воспроизведённого macOS набора; это не гарантия отсутствия любых проекционных перекрытий на произвольном реберном ракурсе.
+
+**144 offline tests PASS**, compilation/validator/diff check PASS. [CI run15 success](https://github.com/4FusionLab/Mesora/actions/runs/43475119273) относится к `a77502e`, не переносится с прежнего commit.
+
+## Установка ZIP и заключительный несохранённый полигон
+
+Проверочный ZIP из `a77502e`: 56 файлов, stable UUID сохранён, `label_layout.py` и `event_scope.py` внутри, helper-аддины отсутствуют. Placeholder version 0.0.0 не для публикации. SHA-256 `eb0395fd9b876def94d91599e8bd20105010e80398342b14135c80da29e6bc65`.
+
+ZIP распакован и реально подключён через managed Scripts API. Подтверждены модуль из распакованной папки, 16 app handlers, command scopes0, 5 definitions, 7 measurement definitions, tracked=valid=actual=6, orbit reflow отсутствует, angle rebuild отсутствует. После испытаний пакет остановлен и отвязан; штатная рабочая папка Mesora снова подключена, isRunning=True, Run on Startup=True.
+
+В отдельном временном **несохранённом** документе повторно прошёл seven-type SDK suite. Затем выполнен native assembly-context suite: parent и child имеют по Rz90 и ненулевые translations. Три мировые точки совпали с независимым расчётом: (8,21,30), (5,21,35), (2,17,35). Семь измерений root/top/nested и circle radius/diameter/length совпали с аналитикой; явное форматирование дало 27.0 mm и 1.0 in. После перемещения parent по X на 1 cm расстояние root→nested стало sqrt(1702)=41.255302689472536 cm. Это приёмка reference resolution/measure после движения, не отдельный end-to-end auto-update аннотации сборки. Исходные definitions context suite не менял; его графика очищена.
+
+Проверка реального выбора: public selection setters сами не доставили picker inputChanged, поэтому их success не использован как доказательство пользовательского выбора. Пользователь кликнул грани; независимый managed observer получил **четыре настоящих picker inputChanged**: area с одной BRepFace → distance с двумя → area → distance. Esc отменил draft, editor=False/scopes0, исходные 8 definitions временного документа сохранены. Никаких искусственных событий или ручных вызовов product handlers.
+
+Временный документ закрыт через close(False), оба helpers остановлены/отвязаны. Возврат в исходный несохранённый документ: ровно 7 типов m1…m7, hidden m4, прежние offsets 0…0.3 cm, global=True, tracked=actual=6, handlers16/scopes0. Изоляция A→B→A подтверждена. Никаких новых облачных сохранений или CAD-экспортов не выполнялось.
+
+По прямому поручению пользователя организовано последовательное владение общей Fusion-сессией с Planara через общий журнал FUSION_SESSION.md; передача только после явного подтверждения, не по таймауту. Оставшаяся проверка UI-переходов типов подготовлена локально, до возврата слота Fusion не вызывается.
+
+## Заключительный пакет UI-типов и native Measure
+
+После явного возврата слота Planara root сверил SelectCommand, creationId `2835aa87-f636-4741-a54f-a6476e579ba2`, один исходный несохранённый документ и startup=True. Managed TypeProbe выполнил 13 переключений публичных dropdown inputs: получены 13 **настоящих kind inputChanged**, совпали draft kind, выбранный пункт и значения по аналитике. Все исходные типы восстановлены, definitions неизменны. Это нативные UI-события, не заявление о физическом нажатии мышью на каждый тип.
+
+Для цилиндрической боковой грани r=27 mm/h=30 mm проверено: edges2, loops2, coEdges1+1; сумма длин edges, coEdges и результат адаптера одинаковы — 33.929200658769766 cm. Нативная команда **MeasureCommand** с той же выбранной гранью показала **Loop Length 339.292 mm**, Area5089.38 mm², Radius27 mm и Diameter54 mm. Root просмотрел настоящий Measure palette screenshot. Таким образом, предварительная неоднозначность учёта шва для этой фикстуры снята — seam edge в её loops нет.
+
+Measure закрыт, selection очищен; TypeProbe остановлен/отвязан. Финальный checkpoint: SelectCommand, одна исходная несохранённая модель, editor=False/scopes0, 7 definitions/6 groups, Run on Startup=True. После этого слот явно предложен Planara и принят её координатором; никакие Fusion вызовы со стороны Mesora до нового согласования не выполняются. QA-helper RuEnProbe существовал отдельно и не изменялся.
+
+## Preflight стабильного пакета 1.1.0
+
+GitVersion 6.8.2 в PR CI определил MajorMinorPatch=1.1.0. После снятия текущего experimental-обозначения прошли 144 tests, validator, compileall и diff check; RU README alias совпадает. Две независимые сборки `Mesora-1.1.0.zip` побайтно одинаковы, SHA-256 `4790d87dbfad91834c9ba3863943a9e23974130cd58c3f87dc38418ed9938c2b`. Сравнение с нативно установленным проверочным ZIP подтвердило одинаковые 56 файлов и идентичный runtime: отличаются только первая строка docstring Mesora.py и description/version манифеста. Stable UUID и прочие поля манифеста сохранены. Финальная публикация и проверка скачанных assets выполняются штатным pipeline, без ручных tags.

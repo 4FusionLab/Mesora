@@ -1,94 +1,80 @@
-# Fusion API safety research
+# Fusion lifecycle and acceptance coverage
 
 [Русская версия](fusion-safety.ru.md)
 
-## CustomGraphics persistence
+## Accepted macOS scope
 
-An [Autodesk forum report](https://forums.autodesk.com/t5/fusion-support-forum/bug-report-custom-graphics-serialized-into-a-document-are/td-p/14142906)
-describes custom graphics present during a save remaining visible after reopening
-while becoming unavailable through the API. A forum reply describes removing
-graphics before save and recreating them afterward; this is an anecdotal workaround,
-not a documented guarantee. No archive modification is implemented or recommended.
+The independent final product review found no open Blocker or Major in the agreed
+macOS release scope. Evidence covers all seven measurement types, actual selection
+and type-change events, visibility, Undo/Redo, model updates, save/reopen, Save As,
+Drawing transition, normal restart, reference measurements in transformed/nested
+occurrences, multi-document isolation and installing the package ZIP. Windows
+Fusion remains natively unverified; it is not a separate release blocker under
+the accepted macOS scope.
 
-The official [Application API](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_Application.htm)
-documents `documentSaving` at the start of saving, `documentSaved` after completion,
-`documentOpened` at the end of opening, `documentActivated` and `documentClosing`.
-The current [DocumentEventArgs reference](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_DocumentEventArgs.htm)
-documents `isOperationCancelled` and `cancelReason` for saving. Fusion 2706.1.17
-exposes those properties and does not expose `isSaveCanceled`; the older Application
-event description still mentions that obsolete name. Native fault-injection must
-verify actual cancellation, beyond checking that the property exists. Documentation
-does not establish that deleting every custom graphic in `documentSaving` prevents
-all cached-scene serialization paths, nor that a canceled or failed save always
-delivers `documentSaved`. Treat those as open questions. Do not claim persistence
-is safe or restore graphics blindly after an interrupted save.
+The final native type probe confirmed 13 actual UI events. For the same cylindrical
+face, Fusion Inspect and Mesora agreed on Loop Length 339.292 mm, Area 5089.38 mm²,
+Radius 27 mm and Diameter 54 mm. Do not confuse that perimeter with the length of
+one circular edge. The [Measure reference](https://help.autodesk.com/cloudhelp/ENU/Fusion-Model/files/GUID-D070A3CB-729F-410F-9DA4-D9DF7F4D55B5.htm)
+lists the face measurements available in Inspect.
 
-Before enabling graphics, exercise save, Save As, cancel, failed save, close,
-reopen, multiple open documents, shutdown and add-in stop on disposable designs,
-with both macOS and Windows. Verify actual event order, deletion outcomes and
-absence of orphaned graphics after a full Fusion restart. An experiment cannot
-prove all possible crash and save paths safe; document the remaining risk.
+The reproduced caption overlap and duplicate-graphics Undo defects passed retests.
+Camera changes now preserve model-space caption anchors, leaders and angular arcs;
+the user confirmed that normal orbit no longer jumps. A new view can still project
+labels together; **Refresh Dimensions** arranges them for that view.
 
-## Measurements and references
+See [native evidence](validation/stability-native-2026-11-13.ru.md) and
+[acceptance traceability](validation/stable-release-cjm-2026-11-13.ru.md).
+Historical entries in those reports retain their original failures and subsequent
+retests; they are not the current product status.
 
-[Edge evaluator](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_BRepEdge_evaluator.htm)
+## Saving and CustomGraphics
+
+Definitions and settings persist in design attributes. Graphics are display state:
+Mesora removes them before saving and does not recreate them in `documentSaved`.
+Open Mesora or use **Refresh Dimensions** after saving to display them again.
+Opening a saved document or starting the add-in restores the definitions and
+requests display. Stop/reopen checks found no labels without Mesora, and the
+model remained editable and savable without the add-in.
+
+This strategy avoids the repeated source-save loop during Drawing creation.
+The accepted Drawing test reached the sheet and canceled Base View placement;
+it does not claim completed drawing detailing. An [Autodesk forum report](https://forums.autodesk.com/t5/fusion-support-forum/bug-report-custom-graphics-serialized-into-a-document-are/td-p/14142906)
+describes inaccessible graphics serialized into a file. Earlier local observations
+using a different Python loading/API path are historical and are not attributed
+to the accepted managed GUI lifecycle. No CAD archive modification is used.
+
+The [Application API](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_Application.htm)
+documents document lifecycle events. Current [DocumentEventArgs](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_DocumentEventArgs.htm)
+uses `isOperationCancelled` and `cancelReason`. A failed cleanup must retain owned
+groups for retry and cancel saving. A zero graphics count alone is not proof of
+an annotation-free saved file: native acceptance also used visual inspection.
+
+## Geometry and event contracts
+
+Use the [BRep edge evaluator](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_BRepEdge_evaluator.htm)
 and [getLengthAtParameter](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_CurveEvaluator3D_getLengthAtParameter.htm)
-provide the curve length between parameters rather than a chord measurement.
-[SketchPoint.worldGeometry](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_SketchPoint_worldGeometry.htm)
-is documented in root-component space including assembly context. Other object
-types and token resolution need their own context tests. Token strings must not be
-compared as identity; unresolved or ambiguous references must not render old data.
+for curve length, not chord length. Restore entity and occurrence references in
+their proper context; do not compare token strings as object identity. Missing or
+ambiguous references must not display stale values, and unsupported/corrupt stored
+definitions must not be silently overwritten.
 
-## Historical validation before the stability candidate
+Deferred work runs through Fusion's custom event queue in its permitted thread.
+Independent event evidence came from an observer started as a managed add-in.
+Importing the observer directly through MCP did not deliver callbacks and cannot
+prove that callbacks are absent from the managed product. Development helpers
+are excluded from the ZIP.
 
-The observations below document an earlier investigation. For later command checks and remaining limitations, see the [README](../README.md) and the stability candidate section below.
+## Limits and future regression work
 
-Offline unit tests exercise arithmetic, evaluator and persistence stubs, schema
-handling, and reference failure cases. A read-only run on the open macOS Fusion
-design measured one full circular edge (radius 0.51 cm, length 3.2044245067 cm),
-one cylindrical face (diameter 1.02 cm), two vertices, sketch arcs and circles,
-and resolved an edge and a vertex in an occurrence. The inspected occurrence had
-zero translation; this does not validate transformed or nested occurrences. The
-document's modified flag was false both before and after. At that stage there had been no live
-attribute write, save/reopen test or Windows test. A direct native renderer smoke
-test created and deleted groups for distance, circular edge length, radius and
-cylindrical diameter; the group count returned to zero. This did not test the
-interactive command or establish visual quality. Fusion marked the open design
-modified, and it was not saved. Attempts to enable the add-in through the manager
-did not produce registered commands; the cause had not been established at that stage.
+The radius update/Undo/Redo test used a native acceptance command with its own
+Fusion transaction, not manual Change Parameters UI. The earlier UI attempt was
+interrupted during AX/Qt accessibility inspection; its cause was not established
+as Mesora. Real failed-cloud-save recovery, every API save route and exhaustive
+geometry/picking combinations are not covered by the release acceptance. Nested
+reference measurements do not claim a separate complete annotation auto-update
+workflow for every assembly edit.
 
-## Stability candidate, 2026-11-13
-
-Commands are now registered. The candidate stores definitions and visibility in
-design attributes and implements deferred geometry updates and startup/open
-restoration. Earlier direct-handler tests establish handler behavior, not event
-delivery.
-
-A historical Python loading/API Save As path reproduced an orphan annotation with
-zero API groups. That result must not be attributed to the current managed GUI
-save path. The latest managed macOS GUI run (`f090654`) confirmed actual Save and
-Save As cleanup, cancellation preserving state, and no dimensions after stopping
-Mesora and reopening the checked fixture. Editing and saving its circle without
-Mesora also reopened without dimensions. Starting Mesora restored references,
-hidden-row settings, offsets and the updated edge length. GUI eye settings and visibility metadata
-Undo/Redo passed on the synthetic fixture. Graphics Undo failed: Undo revived a
-group missing from State, then deferred rendering added a duplicate (two actual
-groups, one tracked). Cleanup correction and native retesting are required. Copy isolation and API save paths under
-the managed lifecycle remain to be accepted.
-
-Event evidence came from an independent development observer run as a managed
-Fusion add-in: its custom callback and documentSaving/documentSaved callbacks were
-observed. An observer imported directly through MCP did not receive callbacks;
-that absence is not evidence of absent managed product events. The observer is
-development tooling and is excluded from the shipped ZIP.
-
-The parametric update scenario was interrupted by an unresponsive Fusion session
-after CUA accessibility inspection of Change Parameters. The sampled main thread
-showed an AX/Qt accessibility and signal-handler stack, without Python/Mesora
-frames; causality is unestablished. No force termination was used with an unsaved
-user document open; manual recovery was requested. This is INCONCLUSIVE, not a
-passed update or restart test. See [native evidence](validation/stability-native-2026-11-13.ru.md)
-and [observer/recovery notes](validation/observer-and-ax-recovery-2026-11-13.ru.md).
-Stable publication remains withheld pending Undo graphics cleanup/retesting,
-parametric changes, current Drawing,
-full Fusion restart, Windows and remaining save/recovery acceptance.
+Use synthetic documents for future regressions and preserve user CAD data. The
+saved acceptance fixtures were deleted. Current testing follows the user's
+no-CAD-save instruction; do not recreate cloud fixtures without authorization.
