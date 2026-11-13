@@ -1,7 +1,11 @@
 """Read-only Fusion event observer for synthetic Mesora acceptance documents.
 
-Import inside Fusion, then call start('/absolute/path/trace.jsonl'), probe(),
-snapshot('label') and stop(). Keep this module imported until stop completes.
+Generate a disposable managed add-in with scripts/prepare_native_observer.py,
+then load/run it through Fusion's Script Manager. The generated run entrypoint
+calls start and probe automatically. Importing and starting this module through
+an MCP script does not establish trustworthy native callback ownership.
+Only a recorded customEvent.callback proves that queued events were delivered;
+successful registration or fireCustomEvent alone is insufficient evidence.
 It never calls Mesora handlers, changes event cancellation, measures geometry,
 creates graphics, or edits/saves/closes documents. Only documents whose names
 start with 'Mesora' contribute document or product state. Other names are redacted.

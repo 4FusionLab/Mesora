@@ -52,7 +52,7 @@ class ApplyTest(unittest.TestCase):
         with patch.dict(sys.modules, {'adsk': adsk, 'adsk.core': core, 'adsk.fusion': fusion}):
             sys.modules.pop('Mesora.Mesora', None); sys.modules.pop('Mesora.renderer', None)
             mod = importlib.import_module('Mesora.Mesora')
-            state = types.SimpleNamespace(items=[('m1','radius',('old',))], groups=[], visible=False, next_id=2, erase=lambda: None)
+            state = types.SimpleNamespace(items=[('m1','radius',('old',))], groups=[], visible=False, next_id=2, erase=lambda keep=(): None)
             old_row = types.SimpleNamespace(id='m1', kind='radius', entities=('old',))
             row = types.SimpleNamespace(id='m2', kind='radius', entities=('new',))
             ctx = types.SimpleNamespace(batch=types.SimpleNamespace(rows=[old_row, row], next_id=3), clear_preview=lambda: None, visible=True)

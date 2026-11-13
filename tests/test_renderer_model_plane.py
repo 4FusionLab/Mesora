@@ -51,6 +51,44 @@ class Eval:
 
 
 class RendererPlaneTest(unittest.TestCase):
+    def test_owned_cleanup_retains_staged_groups_and_reports_failed_deletion(self):
+        with FakeAPI() as renderer:
+            staged, failed, successful, unrelated = (Group() for _ in range(4))
+            for group in (staged, failed, successful):
+                group.id = renderer.OWNERSHIP_PREFIX + str(id(group))
+            unrelated.id = ''
+            deleted = []
+            staged.deleteMe = lambda: self.fail('Staged group must survive cleanup')
+            unrelated.deleteMe = lambda: self.fail('Untagged group belongs to another owner')
+            failed.deleteMe = lambda: False
+            successful.deleteMe = lambda: deleted.append(successful) or True
+            groups = [staged, failed, successful, unrelated]
+            collection = types.SimpleNamespace(count=len(groups), item=lambda i: groups[i])
+            design = types.SimpleNamespace(rootComponent=types.SimpleNamespace(customGraphicsGroups=collection))
+            renderer._LABELS[id(failed)] = 'retained failure bookkeeping'
+            renderer._LABELS[id(successful)] = 'removed success bookkeeping'
+            self.assertEqual(renderer.erase_owned(design, keep=[staged]), [failed])
+            self.assertEqual(deleted, [successful])
+            self.assertIn(id(failed), renderer._LABELS)
+            self.assertNotIn(id(successful), renderer._LABELS)
+
+    def test_undo_restored_owned_groups_are_cleaned_without_other_addins(self):
+        owned = Group()
+        owned.id = '4FusionLab.Mesora.89072f8c-cdca-48bf-8a2a-440c9ae898e6.graphics.v1:restored'
+        other = Group()
+        other.id = 'AnotherAddon.graphics'
+        groups = [owned, other]
+        def delete_owned():
+            groups.remove(owned)
+            owned.isValid = False
+            return True
+        owned.deleteMe = delete_owned
+        collection = types.SimpleNamespace(count=2, item=lambda i: groups[i])
+        design = types.SimpleNamespace(rootComponent=types.SimpleNamespace(customGraphicsGroups=collection))
+        with FakeAPI() as renderer:
+            self.assertEqual(renderer.erase_owned(design), [])
+        self.assertEqual(groups, [other])
+
     def test_clearance_signature_invalidates_internal_body_changes(self):
         body = types.SimpleNamespace(revisionId='before',
             boundingBox=types.SimpleNamespace(minPoint=Point(0,0,0), maxPoint=Point(1,1,1)))
@@ -83,6 +121,7 @@ class RendererPlaneTest(unittest.TestCase):
             self.assertFalse(renderer._LABELS[id(group)][-1])
             self.assertAlmostEqual(abs(renderer.dot(renderer._LABELS[id(group)][2], (-2**-.5, 2**-.5, 0))), 1)
         self.assertEqual(group.text.caption, 'm1: deg')
+        self.assertTrue(group.id.startswith(renderer.OWNERSHIP_PREFIX))
         self.assertFalse(group.isChildrenSelectable)
         self.assertFalse(group.isSelectable)
         self.assertGreater(len(group.lines.coords), 24)

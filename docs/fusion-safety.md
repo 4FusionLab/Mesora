@@ -60,13 +60,35 @@ did not produce registered commands; the cause had not been established at that 
 ## Stability candidate, 2026-11-13
 
 Commands are now registered. The candidate stores definitions and visibility in
-design attributes and implements deferred geometry updates. Native API testing
-confirmed definition round trips and rebuilding on changed geometry through direct
-handler invocation. Event delivery and full UI flows remain separate acceptance gates.
+design attributes and implements deferred geometry updates and startup/open
+restoration. Earlier direct-handler tests establish handler behavior, not event
+delivery.
 
-Saving visible graphics through API Save As, stopping Mesora, and reopening a
-synthetic design reproduced visible orphan graphics with zero API groups. Editing
-and saving the geometry without Mesora left an incorrect old annotation visible.
-A control path that explicitly removed graphics before saving reopened cleanly;
-this does not establish safety for all save paths. See the [native evidence](validation/stability-native-2026-11-13.ru.md).
-Stable publication is withheld; Windows and full restart acceptance remain pending.
+A historical Python loading/API Save As path reproduced an orphan annotation with
+zero API groups. That result must not be attributed to the current managed GUI
+save path. The latest managed macOS GUI run (`f090654`) confirmed actual Save and
+Save As cleanup, cancellation preserving state, and no dimensions after stopping
+Mesora and reopening the checked fixture. Editing and saving its circle without
+Mesora also reopened without dimensions. Starting Mesora restored references,
+hidden-row settings, offsets and the updated edge length. GUI eye settings and visibility metadata
+Undo/Redo passed on the synthetic fixture. Graphics Undo failed: Undo revived a
+group missing from State, then deferred rendering added a duplicate (two actual
+groups, one tracked). Cleanup correction and native retesting are required. Copy isolation and API save paths under
+the managed lifecycle remain to be accepted.
+
+Event evidence came from an independent development observer run as a managed
+Fusion add-in: its custom callback and documentSaving/documentSaved callbacks were
+observed. An observer imported directly through MCP did not receive callbacks;
+that absence is not evidence of absent managed product events. The observer is
+development tooling and is excluded from the shipped ZIP.
+
+The parametric update scenario was interrupted by an unresponsive Fusion session
+after CUA accessibility inspection of Change Parameters. The sampled main thread
+showed an AX/Qt accessibility and signal-handler stack, without Python/Mesora
+frames; causality is unestablished. No force termination was used with an unsaved
+user document open; manual recovery was requested. This is INCONCLUSIVE, not a
+passed update or restart test. See [native evidence](validation/stability-native-2026-11-13.ru.md)
+and [observer/recovery notes](validation/observer-and-ax-recovery-2026-11-13.ru.md).
+Stable publication remains withheld pending Undo graphics cleanup/retesting,
+parametric changes, current Drawing,
+full Fusion restart, Windows and remaining save/recovery acceptance.

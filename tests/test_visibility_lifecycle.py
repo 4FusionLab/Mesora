@@ -22,6 +22,10 @@ class LifecycleTest(unittest.TestCase):
         self.m = importlib.import_module('Mesora.Mesora')
         self.storage_patch = patch.object(self.m, 'save_state', return_value=True)
         self.storage_patch.start()
+        # These older lifecycle fixtures have no Fusion graphics collection.
+        # Real tagged ownership reconciliation is covered in test_owned_lifecycle.
+        self.ownership_patch = patch.object(self.m.renderer, 'erase_owned', return_value=[])
+        self.ownership_patch.start()
         self.doc = types.SimpleNamespace(isModified=False)
         self.m.APP = types.SimpleNamespace(activeDocument=self.doc,
             activeViewport=types.SimpleNamespace(camera=object(), refresh=Mock()), log=Mock())
@@ -35,6 +39,7 @@ class LifecycleTest(unittest.TestCase):
 
     def tearDown(self):
         self.storage_patch.stop()
+        self.ownership_patch.stop()
         self.load_patch.stop()
         self.modules.stop()
         sys.modules.pop('Mesora.Mesora', None); sys.modules.pop('Mesora.renderer', None)

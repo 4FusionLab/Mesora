@@ -1,5 +1,6 @@
 """Session graphics. All groups belong to the manager, never to a command."""
 import math
+import uuid
 import adsk.core
 import adsk.fusion
 from .dimensions.fusion_geometry import measure, point, minimum_distance, angle_geometry
@@ -7,6 +8,7 @@ from .dimensions.layout import add, sub, mul, dot, cross, unit, basis, readable_
 
 _LABELS = {}
 _ANGLES = {}
+OWNERSHIP_PREFIX = '4FusionLab.Mesora.89072f8c-cdca-48bf-8a2a-440c9ae898e6.graphics.v1:'
 
 
 def xyz(p): return (p.x, p.y, p.z)
@@ -16,6 +18,33 @@ def p3(p): return adsk.core.Point3D.create(*p)
 def forget(group):
     _LABELS.pop(id(group), None)
     _ANGLES.pop(id(group), None)
+
+
+def owned_groups(design, keep=()):
+    """Find tagged graphics, including fresh wrappers restored by Fusion Undo.
+
+    All Mesora graphics are root groups. Do not inspect/delete another add-in's
+    groups or infer ownership from text, selection names, or empty IDs.
+    """
+    groups = design.rootComponent.customGraphicsGroups
+    snapshot = [groups.item(index) for index in range(groups.count)]
+    return [group for group in snapshot
+            if group.isValid and group.id.startswith(OWNERSHIP_PREFIX)
+            and not any(group == retained for retained in keep)]
+
+
+def erase_owned(design, keep=()):
+    """Delete owned groups; return failed groups so the caller retains ownership."""
+    failed = []
+    for group in owned_groups(design, keep):
+        try:
+            if group.deleteMe():
+                forget(group)
+            else:
+                failed.append(group)
+        except Exception:
+            failed.append(group)
+    return failed
 
 
 def angle_layout(apex, x, y, value, offset, camera, viewport=None):
@@ -351,6 +380,9 @@ def render(design, kind, entities, camera, ident=None, offset=0, layout_cache=No
     group = design.rootComponent.customGraphicsGroups.add()
     if group is None: raise RuntimeError('Failed to create graphics group')
     try:
+        # Fusion Undo can recreate groups with wrappers the State never saw.
+        # A product-specific ID lets refresh/save/stop reclaim only our groups.
+        group.id = OWNERSHIP_PREFIX + uuid.uuid4().hex
         # Informational annotations must never mask selectable model geometry.
         # Disable selection at the group level, including its line children.
         group.isChildrenSelectable = False

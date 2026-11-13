@@ -1,6 +1,6 @@
 # Mesora: нативная проверка стабильности, 13.11.2026
 
-**Решение: stable не публиковать.** Кейс использования проекта без Mesora выявил устаревшую неуправляемую аннотацию после сохранения и reopen. Windows Fusion, полная проверка restart и штатная последовательность UI-событий финального кандидата не приняты.
+**Решение: stable пока не публиковать.** В прогоне с управляемым запуском Fusion (`f090654`) штатный GUI Save и использование модели без Mesora приняты на macOS для синтетической фикстуры, но подробный trace выявил дублирование графики после Undo (D06). Для D06 реализовано исправление ownership с офлайн-регрессиями; нативный повтор ещё не выполнен. Первоначальный orphan получен другим способом перезагрузки Python и не является доказательством неисправности нынешнего штатного GUI-пути. Параметрическое изменение, полный restart, актуальный Drawing и Windows Fusion ещё не приняты.
 
 ## Среда и границы доказательства
 
@@ -8,7 +8,7 @@ macOS, Autodesk Fusion `2706.1.17`. Проверял основной агент
 
 Вызовы Fusion API проходили через MCP script. Запуск команды через `CommandDefinition.execute()` не оставлял открытый Mesora-диалог; прямые UI-действия не дали подтверждённого изменения интерфейса. Поэтому данные ниже **не являются** приёмкой реального OK/Cancel или порядка UI save/commandTerminated events. Прямой вызов `notify` отмечен отдельно; он проверяет обработчик на настоящей CAD-геометрии, но не доставку события.
 
-## S19: модель без Mesora — FAIL
+## Исторический S19 через прежний способ запуска — FAIL
 
 Фикстура `Mesora stable acceptance 2026-11-13`:
 
@@ -60,7 +60,70 @@ SHA-256 контрольного `prepared-save-without-mesora.png`: `098843b277
 
 ## Необходимая повторная проверка
 
-Сначала устранить попадание CustomGraphics в сохраняемое состояние либо подтвердить другой способ отображения. `isModified` не подделывать, вымышленные transient-флаги не вводить. После исправления повторить все пути Save/Save As/cancel/failure/recovery, close/reopen, restart и работу без аддина с визуальными снимками. Затем принять model edits, Undo/Redo, Drawing, несколько документов и установку финального ZIP отдельно на macOS и Windows.
+Продолжить проверку через штатный Script Manager, с независимо подтверждённой доставкой событий. Отдельно повторить API Save/Save As, чтобы отличить ограничение прежней ручной перезагрузки Python от продуктовой ошибки. Штатный GUI Save и отсутствие размеров без аддина в последнем прогоне проходят; это не закрывает все save/recovery пути. `isModified` не подделывать, вымышленные transient-флаги не вводить. Принять model edits, Undo/Redo, Drawing, несколько документов, restart и установку финального ZIP отдельно на macOS и Windows.
+
+## Актуальный прогон после разблокировки: штатный lifecycle
+
+Источник: `f090654`, Fusion 2706.1.17. Основной агент выполнил GUI-действия; продуктовые `notify` напрямую не вызывались.
+
+### S09 / S10 / S19: сохранение и работа без аддина
+
+- Штатные `Script.stop()` и `Script.run(False)` выполнены отдельными вызовами. При открытии `Mesora safe UI acceptance 2026-11-13 v2` Mesora автоматически загрузила две записи, скрытый m1, offsets 0.2/0.3 cm, и создала одну группу m2.
+- Настоящие Cmd+S и OK в Save дали ровно v3: документ чистый, groups=0, removed_for_save=True, restore_requested=False. Постсохранительного пересоздания не было.
+- После остановки аддина и close/reopen v3: isRunning=False, body=1, groups=0, документ чистый. Снимок `dist/local-validation/unlocked-ui-save-no-addon.png` просмотрен: размеров нет. SHA-256 `098843b277603d26619d798adfa1661b5a66e4e8ed763b6585408446b3d226fe`.
+- С остановленным аддином radius изменён с 2 до 2.3 cm. Настоящий GUI Save дал v4; close/reopen без аддина сохранил radius=2.3, body=1, groups=0, чистый документ. Снимок `dist/local-validation/unlocked-no-addon-edited.png` просмотрен: размеров нет. SHA-256 `fac1e56fbaae1a61825fbf55faba0783219a10eeeed282daa5cf3b826e58cdf4`.
+- Запуск Mesora восстановил две записи, одну группу, hidden_ids=m1, прежние offsets. Ссылка разрешилась по новой геометрии: длина `14.451326206513047 cm`, на экране `144.5 mm`.
+
+Таким образом, **S19 macOS PASS для проверенного GUI-пути**, включая изменение и сохранение без аддина и последующее восстановление. Это не полный Fusion restart и не Windows-проверка.
+
+### S12 / S13: Save As и отмена
+
+Отмена GUI Save As сохранила две записи, одну группу и hidden_ids=m1. Настоящий Save As создал `Mesora Save As acceptance 2026-11-13 v1`: документ чистый, groups=0, removed_for_save=True, две сохранённые записи. Независимость дальнейших изменений копии и reopen копии без аддина требуют завершения.
+
+Для создания копии исчерпан лимит editable документов: **только ранее созданная нами** фикстура `Mesora stable acceptance 2026-11-13` переведена в Read-Only штатным UI. Пользовательские документы не переводились в другой режим и не удалялись.
+
+### Независимое подтверждение событий
+
+Observer, импортированный напрямую через MCP, не получал callback и непригоден как доказательство. Генератор `scripts/prepare_native_observer.py` создаёт отдельный development add-in в `dist/native-acceptance/MesoraAcceptanceObserver`; он запущен штатным менеджером, startup=False. В его `events.jsonl` подтверждены:
+
+```text
+4  customEvent.callback
+14 commandStarting PLM360SaveAsCommand         groups=1
+20 commandStarting PLM360SaveCommand           groups=1
+22 documentSaving                              groups=0 removed_for_save=True
+23 documentSaved                               groups=0 removed_for_save=True
+24 commandTerminated PLM360SaveCommand          groups=0
+```
+
+Definitions SHA-256 в сохранении не изменился. Это реальная доставка событий и очистка перед сохранением; отсутствие callback в прежнем MCP-observer не доказывало отсутствия продуктового события.
+
+### S04 / S05 / S07: применение глазиков и Undo/Redo
+
+На копии настоящий Mesora-диалог показал m1 Radius=23.0 mm hidden/offset=2 mm и m2 Edge Length=144.5 mm visible/offset=3 mm. Общий глазик выключил preview (0 групп), повторное включение сохранило скрытие m1. Глазик m2 скрывал строку без удаления: обе строки остались. OK записал hidden_ids=m1,m2 в память и attributes, groups=0. GUI Undo восстановил hidden_ids=m1, GUI Redo снова дал hidden_ids=m1,m2. Состояние editor_open=False после применения. **Это PASS метаданных, но не графики Undo:** первоначальная оценка только по `len(state.groups)` была недостаточной и отозвана.
+
+Последующее чтение того же managed trace обнаружило D06:
+
+```text
+29–31 после Commit:                tracked=0  actual groups=0
+34–37 во время/после Undo:         tracked=0  actual groups=1
+38–39 перед Redo (после refresh):  tracked=1  actual groups=2
+40–43 во время/после Redo:         tracked=1  actual groups=0
+46–49 следующий Undo:             tracked=0  actual groups=1
+```
+
+Fusion самостоятельно восстановила удалённую графику Undo-транзакцией. Прежний refresh создавал ещё одну группу, поскольку не знал о восстановленном API-объекте. **S07 graphics FAIL, D06 Major**, блокирует stable. Прежний PASS на основании tracked-state не переносится.
+
+Исправление кандидата: каждая новая группа получает `CustomGraphicsGroup.id` со стабильным UUID-префиксом Mesora и уникальным suffix. `renderer.owned_groups/erase_owned` перечисляют реальные root groups и удаляют только помеченные Mesora-группы, включая восстановленные wrappers; чужие и старые группы без метки не присваиваются. `State.erase(keep=staged)` сохраняет новые staged-группы до commit и проверяет реальную коллекцию при refresh/save/stop, даже если tracked-state пуст. Ошибка удаления сохраняет ссылки и отменяет Save. Writable string `id` подтверждён [официальной документацией](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_CustomGraphicsGroup_id.htm).
+
+После интеграции **119 offline tests PASS**, включая воспроизведение нового wrapper с сохранённым ownership ID, пустого tracked-state, чужих groups, staged groups и retry после отказа удаления. Нативно ещё требуется подтвердить, что Fusion сохраняет `id` при настоящем Undo, и повторить Undo/Redo→Save→stop→reopen с визуальным снимком. Это исправление не объявлено нативно принятым.
+
+Позднее этот несохранённый этап копии закрыт через Don't Save; исходная сохранённая копия v1 не переписана этими настройками. Это проверка транзакций текущей сессии, не сохранённой изоляции двух файлов.
+
+### Незавершённое параметрическое изменение и внешний сбой
+
+На повторно открытой синтетической копии добавлен radial constraint d3=23 mm. Открыт нативный Change Parameters, раскрыт Sketch1. Изменение значения не завершено: после клавиатурного перехода и чтения AX-дерева CUA вернул noWindowsAvailable/timeoutReached, MCP перестал отвечать. Снятый без завершения процесса sample показывает основной поток в цепочке AX hierarchy → QMacAccessibilityElement.accessibilitySelectedChildren → обработчик сигнала libcer → read. Python/Mesora-фреймов на этом стеке нет; причинность за пределами этих наблюдений не установлена.
+
+Нативный S06 **INCONCLUSIVE**, не PASS. Процесс не завершался принудительно, поскольку открыт несохранённый пользовательский документ. Запрошена ручная проверка Fusion. См. [наблюдатель и восстановление](observer-and-ax-recovery-2026-11-13.ru.md). До восстановления отзывчивости невозможно штатно остановить managed observer; его логи находятся только в ignored dist и не входят в продуктовый ZIP.
 
 Предыдущий Drawing/visibility прогон находится в [отдельном отчёте](drawing-visibility-2026-11-13.ru.md). Его PASS не переносится автоматически на текущие persistence/update изменения. Полная [матрица CJM](stable-release-cjm-2026-11-13.ru.md) сохраняет PENDING и FAIL.
 

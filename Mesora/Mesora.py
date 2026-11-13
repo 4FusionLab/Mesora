@@ -99,7 +99,7 @@ class State:
             renderer.forget(self.preview)
             self.preview = None
 
-    def erase(self):
+    def erase(self, keep=()):
         self.erase_preview()
         for group in list(self.live_preview):
             if group.isValid and not group.deleteMe():
@@ -113,8 +113,14 @@ class State:
                 else: renderer.forget(group)
             except Exception:
                 failed.append(group)
-        self.groups = failed
-        if failed: raise RuntimeError('Could not remove every dimensions graphics group')
+        # Fusion Undo can revive a deleted group using a different API wrapper.
+        # Reconcile by our own persistent group IDs, never by clearing another
+        # add-in's graphics. New command groups awaiting adoption must survive.
+        for group in renderer.erase_owned(self.design, keep=keep):
+            if group not in failed:
+                failed.append(group)
+        self.groups = [group for group in failed if group.isValid]
+        if self.groups: raise RuntimeError('Could not remove every dimensions graphics group')
 
     def refresh(self):
         if not graphics_workspace():
@@ -615,7 +621,7 @@ class Execute(adsk.core.CommandEventHandler):
                         if not unresolved and getattr(self.context, 'visible', True) and getattr(row, 'visible', True):
                             group = renderer.render(state.design, row.kind, entities, APP.activeViewport.camera, row.id, offset=getattr(row, 'offset', 0.0), layout_cache=getattr(self.context, 'layout_cache', None), obstacles=obstacles)
                         staged.append((row.id, row.kind, refs, group))
-                    state.erase()
+                    state.erase(keep=[entry[3] for entry in staged if entry[3] is not None])
                     save_state(state.design, [(i, k, r) for i, k, r, _ in staged],
                                {r.id: getattr(r, 'offset', 0.0) for r in self.context.batch.rows},
                                {r.id for r in self.context.batch.rows if not getattr(r, 'visible', True)},
@@ -669,8 +675,7 @@ class DocumentEvent(adsk.core.DocumentEventHandler):
         if not state: return
         try:
             if self.mode == 'saving':
-                if state.groups or state.preview is not None or state.live_preview:
-                    state.erase()
+                state.erase()
                 state.removed_for_save = True
                 state.restore_requested = False
                 state.fingerprint = geometry_fingerprint(state.design, state.items, resolve, measure)

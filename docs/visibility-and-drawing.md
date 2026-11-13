@@ -2,12 +2,14 @@
 
 [Русская версия](visibility-and-drawing.ru.md)
 
-**Status: experimental validation candidate; stable release withheld.** Native
-macOS acceptance reproduced an inaccessible persistent CustomGraphics annotation
-after API Save As, stopping Mesora, closing and reopening the synthetic model.
-The annotation was visible while `customGraphicsGroups.count` was zero. A zero
-count is not proof that the model contains no saved graphics. Use disposable
-documents only. See the [native evidence](validation/stability-native-2026-11-13.ru.md).
+**Status: experimental validation candidate; stable release withheld.** Undo
+reproduced duplicate graphics; cleanup correction and native retesting are required. Managed
+macOS GUI testing passed save cleanup and the checked save/reopen/edit path without
+Mesora: no dimensions were visible while the add-in was stopped. Starting Mesora
+restored definitions, visibility, offsets and current values. Earlier orphan
+observations came from a different Python loading/API path and do not establish a
+failure of the current managed GUI save path. Use disposable documents while the
+remaining gates are open. See [native evidence](validation/stability-native-2026-11-13.ru.md).
 
 Each measurement row has an eye button. Click it to hide or show that measurement
 without removing its geometry references, type or offset. A crossed-out eye means
@@ -22,18 +24,22 @@ Measured values are recalculated from current geometry rather than stored.
 Unsupported or damaged stored definitions are not silently overwritten.
 
 Automatic updates are implemented through `commandTerminated` followed by a custom
-event on Fusion's permitted execution thread. Native acceptance of geometry edits,
-Undo/Redo and full recovery is still pending; implementation and offline tests are
-not evidence that every native path works.
+event on Fusion's permitted execution thread. GUI eye application passed on the
+macOS fixture. Undo/Redo restored visibility metadata, but Undo revived an untracked
+graphics group and deferred rendering added another: actual groups reached two
+while State tracked one. Graphics Undo acceptance failed; cleanup needs correction
+and native retesting. Parametric edits and full recovery also need acceptance; implementation and offline tests do not establish every native path.
 
 The candidate also implements definition loading on document open and Mesora
 startup. Display is requested through a deferred custom event; activation may
 resume an existing open/startup request, while workspace, active-document and
 active-command checks gate rendering. Saving clears the pending restore request.
-This code is not native acceptance: actual callback delivery and automatic display
-after managed add-in restart/reopen remain unconfirmed. See the latest rerun in
-[native evidence](validation/stability-native-2026-11-13.ru.md); no full Fusion
-restart acceptance has been completed.
+Managed macOS startup/reopen restored two definitions, a hidden row, offsets and
+the current edge length after geometry was edited without Mesora. An independently
+managed observer confirmed custom-event delivery and real save callbacks. Direct
+MCP import of an observer did not confirm callbacks and cannot establish their
+absence in the managed add-in. See [native evidence](validation/stability-native-2026-11-13.ru.md);
+no full Fusion restart acceptance has been completed.
 
 When the UI save event runs, Mesora removes tracked graphics before saving. It
 deliberately does not recreate them inside `documentSaved`: that makes the source
@@ -44,9 +50,13 @@ Drawing can activate its source during creation; it may only resume an existing
 open/startup request. Workspace activation does not recreate graphics. The camera handler does
 not update model graphics in Drawing or during workspace transitions.
 
-This is a temporary workaround, not complete normal save/reopen behavior. The API
-Save As path reproduced a persistent annotation despite this event strategy.
-Stopping the add-in does not guarantee removal of an already saved artifact.
+Managed GUI Save and Save As confirmed cleanup; cancellation preserved dimensions.
+The checked file reopened without dimensions while Mesora was stopped, remained
+editable and savable, and restored current measurements when Mesora started.
+Manual refresh after save remains a workaround. API Save/Save As with the managed
+lifecycle, copy isolation and remaining recovery paths need separate acceptance.
+The earlier orphan file is historical evidence from a different loading/API path;
+a zero API group count alone is still insufficient to prove an annotation-free file.
 
 ## Acceptance checklist
 
@@ -72,6 +82,7 @@ each step; this checklist itself does not mark any gate passed.
 9. Return to the model and verify measurements and visibility. Test canceled/failed
    save and close paths without discarding or overwriting definitions.
 
-The persistent-artifact defect, Windows native acceptance and full restart gates
-remain blockers for a stable release. See [Fusion safety notes](fusion-safety.md)
+Undo graphics cleanup/retesting, parametric changes, latest-candidate Drawing,
+Windows, full Fusion restart and
+remaining API save/recovery gates still prevent a stable release. See [Fusion safety notes](fusion-safety.md)
 and the [product acceptance matrix](validation/stable-release-cjm-2026-11-13.ru.md).
