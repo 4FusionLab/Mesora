@@ -5,9 +5,11 @@ import adsk.core
 import adsk.fusion
 from .dimensions.fusion_geometry import measure, point, minimum_distance, angle_geometry
 from .dimensions.layout import add, sub, mul, dot, cross, unit, basis, readable_axes, find_clear_placement, clear_intervals, face_axis
+from .dimensions.label_layout import choose_caption, projected_caption_size, projection_scale
 
 _LABELS = {}
 _ANGLES = {}
+_CAPTIONS = {}
 OWNERSHIP_PREFIX = '4FusionLab.Mesora.89072f8c-cdca-48bf-8a2a-440c9ae898e6.graphics.v1:'
 
 
@@ -18,6 +20,111 @@ def p3(p): return adsk.core.Point3D.create(*p)
 def forget(group):
     _LABELS.pop(id(group), None)
     _ANGLES.pop(id(group), None)
+    _CAPTIONS.pop(id(group), None)
+
+
+def arrange_labels(groups, camera, viewport):
+    """Pack one visible batch of captions in screen space without moving dimensions.
+
+    Each caption remains in its own model plane. Extra leader lines connect a
+    displaced caption to its original anchor. Keep the previous world position
+    while its text bounds remain clear. When reflow is required, search from
+    the original attachment so repeated orbit cannot accumulate displacement.
+    """
+    occupied = []
+    viewport_width, viewport_height = getattr(viewport, 'width', None), getattr(viewport, 'height', None)
+    bounds = (0, 0, viewport_width, viewport_height) if viewport_width and viewport_height else None
+    target = getattr(camera, 'target', None)
+    projected_target = viewport.modelToViewSpace(target) if target is not None else None
+    pixel_scale = projection_scale(viewport_width, viewport_height,
+        (projected_target.x, projected_target.y) if projected_target is not None else None)
+    def project(value):
+        point = viewport.modelToViewSpace(p3(value))
+        return point.x/pixel_scale, point.y/pixel_scale
+    for group in groups:
+        key = id(group)
+        if not group.isValid or not getattr(group, 'isVisible', True) or key not in _LABELS:
+            continue
+        saved = _CAPTIONS.get(key)
+        base = saved['base'] if saved else _LABELS[key][1]
+        if saved is None:
+            saved = {'base': base, 'leader': None}
+            _CAPTIONS[key] = saved
+        saved['base'] = base
+        text, _, xaxis, yaxis, size, previous, face_camera = _LABELS[key]
+        orient_text(group, camera)
+        signature = _LABELS[key][5]
+        text_x, text_y = signature[:3], signature[3:6]
+        origin = project(base)
+        tx, ty = project(add(base, text_x)), project(add(base, text_y))
+        width, height = projected_caption_size(max(float(text.width)*16/size, 16), 20,
+            (tx[0]-origin[0], tx[1]-origin[1]), (ty[0]-origin[0], ty[1]-origin[1]))
+        px, py = project(add(base, xaxis)), project(add(base, yaxis))
+        dx, dy = (px[0]-origin[0], px[1]-origin[1]), (py[0]-origin[0], py[1]-origin[1])
+        determinant = dx[0]*dy[1]-dx[1]*dy[0]
+        scale_product = math.hypot(*dx)*math.hypot(*dy)
+        well_conditioned = scale_product > 1e-12 and abs(determinant)/scale_product >= .08
+
+        def candidates():
+            yield origin, base
+            # Lazy candidates keep ordinary, non-overlapping orbit inexpensive.
+            for ring in range(1, 49):
+                if well_conditioned:
+                    displacements = ((0, -ring*(height+12)), (0, ring*(height+12)),
+                                     (-ring*(width+12), 0), (ring*(width+12), 0),
+                                     (-ring*(width+12), -ring*(height+12)),
+                                     (ring*(width+12), -ring*(height+12)),
+                                     (-ring*(width+12), ring*(height+12)),
+                                     (ring*(width+12), ring*(height+12)))
+                    for sx, sy in displacements:
+                        a = (sx*dy[1]-sy*dy[0])/determinant
+                        b = (dx[0]*sy-dx[1]*sx)/determinant
+                        candidate = add(base, add(mul(xaxis, a), mul(yaxis, b)))
+                        yield project(candidate), candidate
+                else:
+                    # An edge-on plane still permits travel on its visible axis.
+                    axis, screen = (xaxis, dx) if math.hypot(*dx) >= math.hypot(*dy) else (yaxis, dy)
+                    length = math.hypot(*screen)
+                    if length < 1e-8:
+                        break
+                    step = ring*(width+height+16)/length
+                    for sign in (-1, 1):
+                        candidate = add(base, mul(axis, sign*step))
+                        yield project(candidate), candidate
+
+        placed = saved.get('placed')
+        if placed is not None:
+            try:
+                # Preserve world placement while the actual text bounds remain
+                # clear. Removing only the extra packing padding is hysteresis:
+                # a small camera motion must not chase the 5px reserve margin.
+                anchor, rect = choose_caption(width, height, occupied,
+                    [(project(placed), placed)], padding=0, bounds=bounds)
+            except ValueError:
+                anchor, rect = choose_caption(width, height, occupied, candidates(), bounds=bounds)
+        else:
+            anchor, rect = choose_caption(width, height, occupied, candidates(), bounds=bounds)
+        saved['placed'] = anchor
+        occupied.append(rect)
+        _LABELS[key] = (text, anchor, xaxis, yaxis, size, signature, face_camera)
+        orient_text(group, camera)
+        moved = math.dist(base, anchor) > 1e-9
+        leader = saved['leader']
+        if moved:
+            coordinates = adsk.fusion.CustomGraphicsCoordinates.create([v for point in (base, anchor) for v in point])
+            if leader is None:
+                leader = group.addLines(coordinates, [], False)
+                if not leader:
+                    raise RuntimeError('Failed to connect displaced caption')
+                leader.color = text.color
+                leader.weight = 1
+                leader.isSelectable = False
+                saved['leader'] = leader
+            else:
+                leader.coordinates = coordinates
+            leader.isVisible = True
+        elif leader is not None:
+            leader.isVisible = False
 
 
 def owned_groups(design, keep=()):
@@ -75,18 +182,14 @@ def angle_layout(apex, x, y, value, offset, camera, viewport=None):
 
 
 def orient_text(group, camera):
-    angular = _ANGLES.get(id(group))
-    if angular is not None and group.isValid:
-        lines, apex, x, y, value, offset = angular
-        segments, anchor = angle_layout(apex, x, y, value, offset, camera, adsk.core.Application.get().activeViewport)
-        lines.coordinates = adsk.fusion.CustomGraphicsCoordinates.create([v for pair in segments for p in pair for v in p])
-        old = _LABELS[id(group)]
-        _LABELS[id(group)] = (old[0], anchor, *old[2:])
     data = _LABELS.get(id(group))
     if data is None or not group.isValid:
         return
     text, anchor, axis_x, axis_y, size, previous, face_camera = data
-    eye_direction = sub(xyz(camera.eye), anchor)
+    # Readability belongs to the model attachment, not an automatic caption shift.
+    # Orbit/zoom must not resize angular geometry or move its attachment point.
+    base = _CAPTIONS.get(id(group), {}).get('base', anchor)
+    eye_direction = sub(xyz(camera.eye), base)
     if face_camera:
         z = unit(eye_direction)
         x = unit(cross(mul(z, -1), xyz(camera.upVector)))

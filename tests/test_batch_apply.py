@@ -19,7 +19,7 @@ class ApplyTest(unittest.TestCase):
             mod.UI = types.SimpleNamespace(activeWorkspace=types.SimpleNamespace(id='FusionSolidEnvironment'))
             state = types.SimpleNamespace(removed_for_save=False, visible=False, groups=['hidden'], live_preview=['preview'], preview=None)
             camera = object()
-            with patch.object(mod, 'state_for', return_value=state), patch.object(mod.renderer, 'orient_text') as orient:
+            with patch.object(mod, 'state_for', return_value=state), patch.object(mod.renderer, 'arrange_labels'), patch.object(mod.renderer, 'orient_text') as orient:
                 mod.CameraChanged().notify(types.SimpleNamespace(viewport=types.SimpleNamespace(camera=camera)))
                 orient.assert_called_once_with('preview', camera)
             sys.modules.pop('Mesora.Mesora', None); sys.modules.pop('Mesora.renderer', None)
@@ -58,7 +58,7 @@ class ApplyTest(unittest.TestCase):
             ctx = types.SimpleNamespace(batch=types.SimpleNamespace(rows=[old_row, row], next_id=3), clear_preview=lambda: None, visible=True)
             mod.APP = types.SimpleNamespace(activeViewport=types.SimpleNamespace(camera=None))
             state.design = object()
-            with patch.object(mod, 'geometry_fingerprint', return_value=('snapshot',)), patch.object(mod, 'save_state'), patch.object(mod, 'current_state', return_value=state), patch.object(mod, 'reference_for', side_effect=lambda e:e), patch.object(mod, 'resolve', side_effect=lambda d,r:r), patch.object(mod.renderer, 'render', side_effect=['old group','new group']):
+            with patch.object(mod.renderer, 'arrange_labels'), patch.object(mod, 'geometry_fingerprint', return_value=('snapshot',)), patch.object(mod, 'save_state'), patch.object(mod, 'current_state', return_value=state), patch.object(mod, 'reference_for', side_effect=lambda e:e), patch.object(mod, 'resolve', side_effect=lambda d,r:r), patch.object(mod.renderer, 'render', side_effect=['old group','new group']):
                 mod.Execute('add', ctx).notify(None)
             self.assertTrue(state.visible)
             self.assertEqual(state.groups, ['old group','new group'])

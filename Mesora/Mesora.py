@@ -138,6 +138,10 @@ class State:
                     self.groups.append(renderer.render(self.design, kind, entities, APP.activeViewport.camera, ident, offset=self.offsets.get(ident, 0.0)))
                 except Exception as ex:
                     errors.append(str(ex))
+        try:
+            renderer.arrange_labels(self.groups, APP.activeViewport.camera, APP.activeViewport)
+        except Exception as ex:
+            errors.append('Caption layout: ' + str(ex))
         APP.activeViewport.refresh()
         self.removed_for_save = False
         self.fingerprint = geometry_fingerprint(self.design, self.items, resolve, measure)
@@ -591,6 +595,10 @@ class Preview(adsk.core.CommandEventHandler):
                     c.preview_groups.append(renderer.render(state.design, row.kind, row.entities, APP.activeViewport.camera, row.id, offset=getattr(row, 'offset', 0.0), layout_cache=c.layout_cache, obstacles=obstacles))
                 except Exception as ex:
                     errors.append(row.id + ': ' + str(ex))
+            try:
+                renderer.arrange_labels(c.preview_groups, APP.activeViewport.camera, APP.activeViewport)
+            except Exception as ex:
+                errors.append('Caption layout: ' + str(ex))
             if errors: c.update_status(args.command.commandInputs, '; '.join(errors))
             args.isValidResult = False
         except Exception: log_error()
@@ -613,6 +621,9 @@ class DestroyPreview(adsk.core.CommandEventHandler):
                     for group in context.state.groups:
                         if group.isValid:
                             group.isVisible = context.state.visible and graphics_workspace()
+                    if (graphics_workspace() and context.state.doc == APP.activeDocument
+                            and not context.state.removed_for_save):
+                        renderer.arrange_labels(context.state.groups, APP.activeViewport.camera, APP.activeViewport)
         except Exception: log_error()
         finally:
             if context is not None:
@@ -643,6 +654,10 @@ class Execute(adsk.core.CommandEventHandler):
                         if not unresolved and getattr(self.context, 'visible', True) and getattr(row, 'visible', True):
                             group = renderer.render(state.design, row.kind, entities, APP.activeViewport.camera, row.id, offset=getattr(row, 'offset', 0.0), layout_cache=getattr(self.context, 'layout_cache', None), obstacles=obstacles)
                         staged.append((row.id, row.kind, refs, group))
+                    # Arrange the whole new set before touching committed graphics
+                    # or definitions, so placement failure can roll back the draft.
+                    renderer.arrange_labels([entry[3] for entry in staged if entry[3] is not None],
+                                            APP.activeViewport.camera, APP.activeViewport)
                     state.erase(keep=[entry[3] for entry in staged if entry[3] is not None])
                     save_state(state.design, [(i, k, r) for i, k, r, _ in staged],
                                {r.id: getattr(r, 'offset', 0.0) for r in self.context.batch.rows},
@@ -732,8 +747,12 @@ class CameraChanged(adsk.core.CameraEventHandler):
                 return
             self.busy = True
             camera = args.viewport.camera
-            for group in (list(state.groups) if state.visible else []) + list(state.live_preview) + ([state.preview] if state.preview is not None else []):
+            groups = (list(state.groups) if state.visible else []) + list(state.live_preview) + ([state.preview] if state.preview is not None else [])
+            groups = [group for group in groups
+                      if getattr(group, 'isValid', True) and getattr(group, 'isVisible', True)]
+            for group in groups:
                 renderer.orient_text(group, camera)
+            renderer.arrange_labels(groups, camera, args.viewport)
         except Exception:
             log_error()
         finally:

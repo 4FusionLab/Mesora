@@ -22,6 +22,10 @@ class LifecycleTest(unittest.TestCase):
         self.m = importlib.import_module('Mesora.Mesora')
         self.storage_patch = patch.object(self.m, 'save_state', return_value=True)
         self.storage_patch.start()
+        # Most lifecycle stubs have no viewport projection/text geometry.
+        # The caption integration suite supplies behaviorful arrangement separately.
+        self.arrangement_patch = patch.object(self.m.renderer, 'arrange_labels', return_value=None)
+        self.arrangement_patch.start()
         # These older lifecycle fixtures have no Fusion graphics collection.
         # Real tagged ownership reconciliation is covered in test_owned_lifecycle.
         self.ownership_patch = patch.object(self.m.renderer, 'erase_owned', return_value=[])
@@ -50,6 +54,7 @@ class LifecycleTest(unittest.TestCase):
 
     def tearDown(self):
         self.storage_patch.stop()
+        self.arrangement_patch.stop()
         self.ownership_patch.stop()
         self.owned_collection_patch.stop()
         self.load_patch.stop()
