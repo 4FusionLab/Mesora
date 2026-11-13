@@ -22,7 +22,13 @@ attributes through `dimensions/runtime_persistence.py`; values are recalculated.
 Schema v2 supports all current measurement types and reads schema v1. Unknown,
 corrupted or future data must not be silently overwritten. Automatic model updates
 use `commandTerminated` and a deferred custom event; native acceptance remains
-incomplete.
+incomplete. Definition loading on document open and add-in startup now requests
+an event-gated deferred restore; document activation only resumes an existing
+request, and saving clears it. Actual native callback delivery and automatic
+rendering after managed add-in restart/reopen remain unconfirmed. See the latest
+rerun in the native report below; full Fusion restart acceptance is still pending.
+The independent `scripts/native_acceptance_observer.py` is development tooling,
+not part of the shipped add-in.
 
 A macOS API Save As test reproduced a visible persistent CustomGraphics annotation
 after stopping Mesora and reopening the file, even with a zero API group count.

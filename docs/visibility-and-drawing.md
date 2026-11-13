@@ -26,12 +26,22 @@ event on Fusion's permitted execution thread. Native acceptance of geometry edit
 Undo/Redo and full recovery is still pending; implementation and offline tests are
 not evidence that every native path works.
 
+The candidate also implements definition loading on document open and Mesora
+startup. Display is requested through a deferred custom event; activation may
+resume an existing open/startup request, while workspace, active-document and
+active-command checks gate rendering. Saving clears the pending restore request.
+This code is not native acceptance: actual callback delivery and automatic display
+after managed add-in restart/reopen remain unconfirmed. See the latest rerun in
+[native evidence](validation/stability-native-2026-11-13.ru.md); no full Fusion
+restart acceptance has been completed.
+
 When the UI save event runs, Mesora removes tracked graphics before saving. It
 deliberately does not recreate them inside `documentSaved`: that makes the source
 design modified again and can make Drawing creation repeatedly save the source.
 After a save, open Mesora or use **Refresh Dimensions** to show the dimensions
-again. Document/workspace activation also leaves restoration to explicit actions,
-because Drawing can activate its source during creation. The camera handler does
+again. Document activation alone does not create a new restore request, because
+Drawing can activate its source during creation; it may only resume an existing
+open/startup request. Workspace activation does not recreate graphics. The camera handler does
 not update model graphics in Drawing or during workspace transitions.
 
 This is a temporary workaround, not complete normal save/reopen behavior. The API

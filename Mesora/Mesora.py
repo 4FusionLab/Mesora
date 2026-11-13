@@ -78,6 +78,7 @@ class State:
         self.next_id = 1
         self.fingerprint = None
         self.editor_open = False
+        self.restore_requested = False
 
     def load(self):
         stored = load_state(self.design)
@@ -132,6 +133,7 @@ class State:
         APP.activeViewport.refresh()
         self.removed_for_save = False
         self.fingerprint = geometry_fingerprint(self.design, self.items, resolve, measure)
+        self.restore_requested = False
         return errors
 
     def remove_item(self, ident):
@@ -148,24 +150,75 @@ class State:
 
 
 def current_state(create=True):
-    doc = APP.activeDocument
-    design = adsk.fusion.Design.cast(APP.activeProduct)
-    if not design and doc:
-        design = adsk.fusion.Design.cast(doc.products.itemByProductType('DesignProductType'))
-    if not doc or not design: raise RuntimeError('Open a Fusion design first')
-    for state in STATES:
-        if state.doc == doc: return state
-    if not create: return None
-    # Drop closed document state without writing to another document.
-    STATES[:] = [s for s in STATES if getattr(s.doc, 'isValid', True)]
-    state = State(doc, design)
-    state.load()
-    STATES.append(state)
+    state = state_for_document(APP.activeDocument, create)
+    if state is None and create:
+        raise RuntimeError('Open a Fusion design first')
     return state
 
 
 def state_for(doc):
     return next((s for s in STATES if s.doc == doc), None)
+
+
+def state_for_document(doc, create=True):
+    """Load definitions from this document, including when it is not active.
+
+    Loading is read-only; drawing graphics is deferred to the custom event.
+    """
+    if not doc or not getattr(doc, 'isValid', True):
+        return None
+    existing = state_for(doc)
+    if existing is not None or not create:
+        return existing
+    design = adsk.fusion.Design.cast(doc.products.itemByProductType('DesignProductType'))
+    if design is None:
+        return None
+    state = State(doc, design)
+    state.load()
+    state.restore_requested = bool(state.items)
+    STATES[:] = [entry for entry in STATES if getattr(entry.doc, 'isValid', True)]
+    STATES.append(state)
+    return state
+
+
+def request_document_restore(doc):
+    """Queue at most one deferred restore; never create graphics in open events."""
+    global UPDATE_PENDING
+    state = state_for_document(doc)
+    if (state is not None and getattr(state, 'restore_requested', False)
+            and APP.activeDocument == doc and not UPDATE_PENDING):
+        UPDATE_PENDING = APP.fireCustomEvent(UPDATE_EVENT_ID)
+    return state
+
+
+def restore_open_documents():
+    """Read definitions at startup; one corrupt document cannot block the others."""
+    for doc in APP.documents:
+        try:
+            request_document_restore(doc)
+        except Exception:
+            log_error()
+
+
+class DocumentOpened(adsk.core.DocumentEventHandler):
+    def notify(self, args):
+        try:
+            request_document_restore(args.document)
+        except Exception:
+            log_error()
+
+
+class DocumentActivated(adsk.core.DocumentEventHandler):
+    def notify(self, args):
+        # Activation also occurs while Drawing saves its source. Only restore a
+        # request created by opening/startup, never manufacture a fresh one here.
+        state = state_for(args.document)
+        if state is None or not getattr(state, 'restore_requested', False):
+            return
+        try:
+            request_document_restore(args.document)
+        except Exception:
+            log_error()
 
 
 def format_value(design, kind, value):
@@ -180,7 +233,7 @@ class BatchCommand:
         self.batch.next_id = current_state().next_id
         self.busy = False
         self.state = current_state()
-        if getattr(self.state, 'removed_for_save', False):
+        if getattr(self.state, 'removed_for_save', False) or getattr(self.state, 'restore_requested', False):
             self.state.refresh()
         self.visible = getattr(self.state, 'visible', True)
         self.preview_groups = self.state.live_preview
@@ -585,6 +638,7 @@ class Execute(adsk.core.CommandEventHandler):
                 state.next_id = self.context.batch.next_id
                 state.visible = getattr(self.context, 'visible', True)
                 state.removed_for_save = False
+                state.restore_requested = False
                 state.fingerprint = geometry_fingerprint(state.design, state.items, resolve, measure)
             elif self.operation == 'remove_one':
                 item = args.command.commandInputs.itemById('remove_id').selectedItem
@@ -618,6 +672,7 @@ class DocumentEvent(adsk.core.DocumentEventHandler):
                 if state.groups or state.preview is not None or state.live_preview:
                     state.erase()
                 state.removed_for_save = True
+                state.restore_requested = False
                 state.fingerprint = geometry_fingerprint(state.design, state.items, resolve, measure)
             elif self.mode == 'saved' and state.removed_for_save:
                 # Creating CustomGraphics dirties the document. Drawing saves its
@@ -697,10 +752,12 @@ class UpdateDimensions(adsk.core.CustomEventHandler):
                 # Undo/Redo restores document attributes in Fusion's transaction.
                 # Runtime state must follow them, including undoing the last row.
                 state.load()
+            if not state.items and not definitions_changed and not state.restore_requested:
+                return
             fingerprint = geometry_fingerprint(state.design, state.items, resolve, measure)
             # Saving itself, camera motion, and workspace activation must never
             # recreate graphics and restart the Drawing source-save loop.
-            if definitions_changed or (state.fingerprint is not None and fingerprint != state.fingerprint):
+            if state.restore_requested or definitions_changed or (state.fingerprint is not None and fingerprint != state.fingerprint):
                 state.refresh()
         except Exception:
             log_error()
@@ -746,6 +803,8 @@ def run(context):
         bind(APP.documentSaving, DocumentEvent('saving'))
         bind(APP.documentSaved, DocumentEvent('saved'))
         bind(APP.documentClosing, DocumentEvent('closing'))
+        bind(APP.documentOpened, DocumentOpened())
+        bind(APP.documentActivated, DocumentActivated())
         bind(APP.cameraChanged, CameraChanged())
         bind(UI.workspacePreDeactivate, WorkspaceChanged(True))
         bind(UI.workspacePreActivate, WorkspaceChanged(True))
@@ -755,6 +814,7 @@ def run(context):
             raise RuntimeError('Could not register Mesora geometry update event')
         bind(update_event, UpdateDimensions())
         bind(UI.commandTerminated, ModelCommandEnded())
+        restore_open_documents()
     except Exception:
         log_error(); stop(context); UI.messageBox('Mesora failed to start. See Text Commands log.')
 
