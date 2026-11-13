@@ -50,6 +50,7 @@ class RowDraft:
         self.options = []
         self.kind = None
         self.offset = 0.0
+        self.visible = True
 
     @property
     def needs_second(self):

@@ -1,6 +1,6 @@
 {
   "name": "Mesora",
   "display_name": "Mesora",
-  "description": "Experimental informational 3D dimensions (session-only safe mode).",
+  "description": "Informational 3D measurements with saved definitions and per-document visibility.",
   "initialized": true
 }

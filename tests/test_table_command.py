@@ -3,7 +3,7 @@ import importlib
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 class ListItems:
@@ -53,7 +53,7 @@ class TableCommandTest(unittest.TestCase):
         core.Application=types.SimpleNamespace(get=lambda:types.SimpleNamespace(userInterface=None))
         core.DropDownStyles=types.SimpleNamespace(TextListDropDownStyle=1)
         core.ValueInput=types.SimpleNamespace(createByReal=lambda value:value)
-        for n in ('CommandCreatedEventHandler','InputChangedEventHandler','ValidateInputsEventHandler','CommandEventHandler','DocumentEventHandler','CameraEventHandler'):
+        for n in ('CommandCreatedEventHandler','InputChangedEventHandler','ValidateInputsEventHandler','CommandEventHandler','DocumentEventHandler','CameraEventHandler','WorkspaceEventHandler', 'ApplicationCommandEventHandler', 'CustomEventHandler'):
             setattr(core,n,type(n,(),{}))
         adsk=types.ModuleType('adsk'); adsk.core=core; adsk.fusion=fusion
         with patch.dict(sys.modules,{'adsk':adsk,'adsk.core':core,'adsk.fusion':fusion}):
@@ -88,6 +88,21 @@ class TableCommandTest(unittest.TestCase):
                 c.open_editor('m1')
                 self.assertEqual(first.offset, 1.25)
                 self.assertEqual(second.offset, 0)
+                c.command=Mock()
+                eye=c.inputs.itemById('visible_m1'); eye.id='visible_m1'; eye.value=False
+                m.Changed(c).notify(types.SimpleNamespace(input=eye))
+                self.assertFalse(first.visible)
+                self.assertTrue(second.visible)
+                self.assertEqual(first.entities, (face, other))
+                global_eye=Input(); global_eye.id='visible_all'; global_eye.value=False
+                m.Changed(c).notify(types.SimpleNamespace(input=global_eye))
+                self.assertFalse(c.visible)
+                global_eye.value=True
+                m.Changed(c).notify(types.SimpleNamespace(input=global_eye))
+                self.assertTrue(c.visible)
+                self.assertFalse(first.visible)
+                self.assertTrue(second.visible)
+                self.assertEqual(c.command.doExecutePreview.call_count, 3)
                 self.assertEqual(c.picker.entities, [face, other])
                 c.picker.entities.pop(1); c.accept_selection()
                 self.assertIs(first.first, face); self.assertIsNone(first.second)

@@ -51,6 +51,155 @@ class Eval:
 
 
 class RendererPlaneTest(unittest.TestCase):
+    def test_wide_orbit_readability_rotates_about_exact_caption_world_anchor(self):
+        group = Group()
+        anchor = (4, 5, 6)
+        text = types.SimpleNamespace(width=10)
+        with FakeAPI() as renderer:
+            renderer._LABELS[id(group)] = (text, anchor, (1,0,0), (0,1,0), 1, None, False)
+            renderer._CAPTIONS[id(group)] = {'base': (0,0,0), 'placed': anchor, 'leader': None}
+            arc = types.SimpleNamespace(coordinates=('model-fixed angle arc',))
+            renderer._ANGLES[id(group)] = (arc, (0,0,0), (1,0,0), (0,1,0), 1.57, 0)
+            for eye in ((0,0,10), (10,0,.01), (-10,0,-.01), (0,-10,.01), (0,0,-10)):
+                camera = types.SimpleNamespace(eye=Point(*eye), upVector=Point(0,1,0))
+                renderer.orient_text(group, camera)
+                matrix = text.transform
+                x, y, _ = matrix.axes
+                # The actual CustomGraphicsViewScale pivot is (width/2,-size*.25,0).
+                pivot = tuple(getattr(matrix.origin, axis) + getattr(x, axis)*5 - getattr(y, axis)*.25
+                              for axis in ('x', 'y', 'z'))
+                for actual, expected in zip(pivot, anchor):
+                    self.assertAlmostEqual(actual, expected)
+                self.assertEqual(renderer._LABELS[id(group)][1], anchor)
+                self.assertEqual(arc.coordinates, ('model-fixed angle arc',))
+
+    def test_smooth_view_change_keeps_clear_previous_world_caption(self):
+        groups = [Group(), Group()]
+        camera = types.SimpleNamespace(eye=Point(0,0,10), upVector=Point(0,1,0))
+        scale = [100]
+        viewport = types.SimpleNamespace(modelToViewSpace=lambda p: Point(p.x*scale[0], p.y*scale[0], 0))
+        with FakeAPI() as renderer:
+            for group in groups:
+                renderer._LABELS[id(group)] = (types.SimpleNamespace(width=10, color=(0,0,0,255)),
+                    (0,0,0), (1,0,0), (0,1,0), 1, None, False)
+            renderer.arrange_labels(groups, camera, viewport)
+            previous = renderer._LABELS[id(groups[1])][1]
+            scale[0] = 101  # Smooth orbit-like projection change, no new collision.
+            camera.eye.x = .01
+            renderer.arrange_labels(groups, camera, viewport)
+            self.assertEqual(renderer._LABELS[id(groups[1])][1], previous)
+            scale[0] = 40  # Actual projected captions now collide, so reflow is required.
+            renderer.arrange_labels(groups, camera, viewport)
+            self.assertNotEqual(renderer._LABELS[id(groups[1])][1], previous)
+
+    def test_orienting_angle_does_not_resize_arc_or_move_anchor(self):
+        group = Group()
+        camera = types.SimpleNamespace(eye=Point(0,0,10), upVector=Point(0,1,0))
+        with FakeAPI() as renderer:
+            renderer._LABELS[id(group)] = (types.SimpleNamespace(width=1), (1,1,0),
+                (1,0,0), (0,1,0), 1, None, False)
+            lines = types.SimpleNamespace(coordinates=('original arc',))
+            renderer._ANGLES[id(group)] = (lines, (0,0,0), (1,0,0), (0,1,0), 1.57, 0)
+            renderer.orient_text(group, camera)
+            camera.eye.x = 1
+            renderer.orient_text(group, camera)
+            self.assertEqual(lines.coordinates, ('original arc',))
+            self.assertEqual(renderer._LABELS[id(group)][1], (1,1,0))
+
+    def test_retina_batch_projects_backing_pixels_into_logical_caption_bounds(self):
+        groups = [Group(), Group()]
+        camera = types.SimpleNamespace(eye=Point(0,0,10), target=Point(0,0,0), upVector=Point(0,1,0))
+        viewport = types.SimpleNamespace(width=1000, height=600,
+            modelToViewSpace=lambda p: Point(1000+p.x*200, 600+p.y*200, 0))
+        with FakeAPI() as renderer:
+            for group in groups:
+                renderer._LABELS[id(group)] = (types.SimpleNamespace(width=10, color=(0,0,0,255)),
+                    (0,0,0), (1,0,0), (0,1,0), 1, None, False)
+            renderer.arrange_labels(groups, camera, viewport)
+            anchors = [renderer._LABELS[id(group)][1] for group in groups]
+            self.assertEqual(anchors[0], (0,0,0))
+            self.assertAlmostEqual(abs(anchors[1][1]), .32)
+
+    def test_batch_captions_separate_and_relayout_does_not_accumulate_drift(self):
+        groups = [Group(), Group(), Group()]
+        camera = types.SimpleNamespace(eye=Point(0,0,10), upVector=Point(0,1,0))
+        viewport = types.SimpleNamespace(modelToViewSpace=lambda p: Point(p.x*100, p.y*100, 0))
+        with FakeAPI() as renderer:
+            for group in groups:
+                text = types.SimpleNamespace(width=10, color=(0,0,0,255))
+                renderer._LABELS[id(group)] = (text, (0,0,0), (1,0,0), (0,1,0), 1, None, False)
+            renderer.arrange_labels(groups, camera, viewport)
+            anchors = [renderer._LABELS[id(group)][1] for group in groups]
+            self.assertEqual(anchors[0], (0,0,0))
+            self.assertGreaterEqual(abs(anchors[1][1])*100, 30)
+            self.assertNotEqual(anchors[1], anchors[2])
+            self.assertTrue(renderer._CAPTIONS[id(groups[1])]['leader'].isVisible)
+            renderer.arrange_labels(groups, camera, viewport)
+            self.assertEqual(anchors, [renderer._LABELS[id(group)][1] for group in groups])
+            groups[0].isVisible = False
+            renderer.arrange_labels(groups, camera, viewport)
+            self.assertEqual(renderer._LABELS[id(groups[1])][1], anchors[1])
+            self.assertTrue(renderer._CAPTIONS[id(groups[1])]['leader'].isVisible)
+
+    def test_edge_on_caption_plane_uses_reachable_direction_without_leaving_plane(self):
+        groups = [Group(), Group()]
+        camera = types.SimpleNamespace(eye=Point(10,0,1), upVector=Point(0,0,1))
+        viewport = types.SimpleNamespace(modelToViewSpace=lambda p: Point(p.y*100, p.z*100, 0))
+        with FakeAPI() as renderer:
+            for group in groups:
+                renderer._LABELS[id(group)] = (types.SimpleNamespace(width=10, color=(0,0,0,255)),
+                    (0,0,0), (1,0,0), (0,1,0), 1, None, False)
+            renderer.arrange_labels(groups, camera, viewport)
+            first, second = [renderer._LABELS[id(group)][1] for group in groups]
+            self.assertEqual(second[2], 0)  # The XY dimension plane is preserved.
+            self.assertGreaterEqual(abs(second[1]-first[1])*100, 170)
+
+    def test_owned_cleanup_retains_staged_groups_and_reports_failed_deletion(self):
+        with FakeAPI() as renderer:
+            staged, failed, successful, unrelated = (Group() for _ in range(4))
+            for group in (staged, failed, successful):
+                group.id = renderer.OWNERSHIP_PREFIX + str(id(group))
+            unrelated.id = ''
+            deleted = []
+            staged.deleteMe = lambda: self.fail('Staged group must survive cleanup')
+            unrelated.deleteMe = lambda: self.fail('Untagged group belongs to another owner')
+            failed.deleteMe = lambda: False
+            successful.deleteMe = lambda: deleted.append(successful) or True
+            groups = [staged, failed, successful, unrelated]
+            collection = types.SimpleNamespace(count=len(groups), item=lambda i: groups[i])
+            design = types.SimpleNamespace(rootComponent=types.SimpleNamespace(customGraphicsGroups=collection))
+            renderer._LABELS[id(failed)] = 'retained failure bookkeeping'
+            renderer._LABELS[id(successful)] = 'removed success bookkeeping'
+            self.assertEqual(renderer.erase_owned(design, keep=[staged]), [failed])
+            self.assertEqual(deleted, [successful])
+            self.assertIn(id(failed), renderer._LABELS)
+            self.assertNotIn(id(successful), renderer._LABELS)
+
+    def test_undo_restored_owned_groups_are_cleaned_without_other_addins(self):
+        owned = Group()
+        owned.id = '4FusionLab.Mesora.89072f8c-cdca-48bf-8a2a-440c9ae898e6.graphics.v1:restored'
+        other = Group()
+        other.id = 'AnotherAddon.graphics'
+        groups = [owned, other]
+        def delete_owned():
+            groups.remove(owned)
+            owned.isValid = False
+            return True
+        owned.deleteMe = delete_owned
+        collection = types.SimpleNamespace(count=2, item=lambda i: groups[i])
+        design = types.SimpleNamespace(rootComponent=types.SimpleNamespace(customGraphicsGroups=collection))
+        with FakeAPI() as renderer:
+            self.assertEqual(renderer.erase_owned(design), [])
+        self.assertEqual(groups, [other])
+
+    def test_clearance_signature_invalidates_internal_body_changes(self):
+        body = types.SimpleNamespace(revisionId='before',
+            boundingBox=types.SimpleNamespace(minPoint=Point(0,0,0), maxPoint=Point(1,1,1)))
+        with FakeAPI() as renderer, patch.object(renderer, 'visible_solids', return_value=[body]):
+            before = renderer.obstacle_signature(object())
+            body.revisionId = 'after'  # A hole changes without changing bounds.
+            self.assertNotEqual(before, renderer.obstacle_signature(object()))
+
     def test_angle_layout_tracks_screen_scale_and_extends_short_sides(self):
         import math
         with FakeAPI() as renderer:
@@ -75,6 +224,9 @@ class RendererPlaneTest(unittest.TestCase):
             self.assertFalse(renderer._LABELS[id(group)][-1])
             self.assertAlmostEqual(abs(renderer.dot(renderer._LABELS[id(group)][2], (-2**-.5, 2**-.5, 0))), 1)
         self.assertEqual(group.text.caption, 'm1: deg')
+        self.assertTrue(group.id.startswith(renderer.OWNERSHIP_PREFIX))
+        self.assertFalse(group.isChildrenSelectable)
+        self.assertFalse(group.isSelectable)
         self.assertGreater(len(group.lines.coords), 24)
         self.assertEqual(group.lines.coords[:3], (0,0,0))
 
