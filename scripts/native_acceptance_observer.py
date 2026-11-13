@@ -98,6 +98,9 @@ def _design_info(doc):
         attribute = design.attributes.itemByName(_ATTRIBUTE_GROUP, _ATTRIBUTE_NAME)
         result = {'present': True, 'definitions_present': bool(attribute),
                   'custom_graphics_group_count': design.rootComponent.customGraphicsGroups.count}
+        groups = design.rootComponent.customGraphicsGroups
+        result['mesora_graphics_ids'] = [groups.item(i).id for i in range(groups.count)
+                                        if groups.item(i).id.startswith('4FusionLab.Mesora.')]
         if attribute:
             result['definitions_sha256'] = hashlib.sha256(attribute.value.encode('utf-8')).hexdigest()
         return result

@@ -26,6 +26,17 @@ class LifecycleTest(unittest.TestCase):
         # Real tagged ownership reconciliation is covered in test_owned_lifecycle.
         self.ownership_patch = patch.object(self.m.renderer, 'erase_owned', return_value=[])
         self.ownership_patch.start()
+        def fake_owned_groups(design, keep=()):
+            state = next((entry for entry in self.m.STATES if entry.design is design), None)
+            result = []
+            for group in state.groups if state else []:
+                if getattr(group, 'isValid', True):
+                    if not hasattr(group, 'id'):
+                        group.id = 'unit-fixture-' + str(id(group))
+                    result.append(group)
+            return result
+        self.owned_collection_patch = patch.object(self.m.renderer, 'owned_groups', side_effect=fake_owned_groups)
+        self.owned_collection_patch.start()
         self.doc = types.SimpleNamespace(isModified=False)
         self.m.APP = types.SimpleNamespace(activeDocument=self.doc,
             activeViewport=types.SimpleNamespace(camera=object(), refresh=Mock()), log=Mock())
@@ -40,6 +51,7 @@ class LifecycleTest(unittest.TestCase):
     def tearDown(self):
         self.storage_patch.stop()
         self.ownership_patch.stop()
+        self.owned_collection_patch.stop()
         self.load_patch.stop()
         self.modules.stop()
         sys.modules.pop('Mesora.Mesora', None); sys.modules.pop('Mesora.renderer', None)

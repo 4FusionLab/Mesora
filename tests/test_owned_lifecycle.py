@@ -30,6 +30,7 @@ class OwnedLifecycleTest(unittest.TestCase):
     def setUp(self):
         lifecycle.LifecycleTest.setUp(self)
         self.ownership_patch.stop()  # Exercise the actual renderer ownership API.
+        self.owned_collection_patch.stop()
         self.groups = Groups()
         self.state.design = types.SimpleNamespace(rootComponent=types.SimpleNamespace(customGraphicsGroups=self.groups))
         self.m.UI.messageBox = Mock()
@@ -109,3 +110,56 @@ class OwnedLifecycleTest(unittest.TestCase):
         self.assertEqual(self.state.groups, [])
         self.assertEqual(self.groups.values, [foreign])
         self.assertTrue(self.state.removed_for_save)
+
+    def test_unchanged_metadata_and_geometry_reconcile_undo_restored_wrapper(self):
+        previous = Group(self.groups, self.prefix + 'before-no-op-edit')
+        previous.deleteMe()
+        revived = Group(self.groups, previous.id)
+        foreign = Group(self.groups, 'foreign')
+        invalid_tracked = types.SimpleNamespace(id=self.prefix + 'after-no-op-edit', isValid=False)
+        self.state.items = [('m1', 'radius', ('edge',))]
+        self.state.groups = [invalid_tracked]
+        self.state.fingerprint = ('unchanged',)
+        self.state.restore_requested = False
+        def render(*args, **kwargs):
+            self.assertFalse(revived.isValid)
+            return Group(self.groups, self.prefix + 'reconciled')
+        with patch.object(self.m, 'resolve', return_value=object()), \
+                patch.object(self.m, 'geometry_fingerprint', return_value=('unchanged',)), \
+                patch.object(self.m.renderer, 'render', side_effect=render):
+            self.m.UpdateDimensions().notify(None)
+        self.assertFalse(revived.isValid, 'Unchanged metadata must not bypass restored-group reconciliation')
+        self.assertEqual(len(self.state.groups), 1)
+        self.assertTrue(self.state.groups[0].isValid)
+        self.assertEqual(self.m.renderer.owned_groups(self.state.design), self.state.groups)
+        self.assertTrue(foreign.isValid)
+        self.assertEqual(self.groups.count, 2)
+
+    def test_after_save_equal_empty_owned_and_tracked_sets_do_not_redraw(self):
+        foreign = Group(self.groups, 'foreign')
+        self.state.items = [('m1', 'radius', ('edge',))]
+        self.state.groups = []
+        self.state.fingerprint = ('saved',)
+        self.state.removed_for_save = True
+        self.state.restore_requested = False
+        with patch.object(self.m, 'geometry_fingerprint', return_value=('saved',)), \
+                patch.object(self.m.renderer, 'render') as render:
+            self.m.UpdateDimensions().notify(None)
+        render.assert_not_called()
+        self.assertEqual(self.state.groups, [])
+        self.assertEqual(self.groups.values, [foreign])
+        self.assertTrue(self.state.removed_for_save)
+
+    def test_empty_definitions_still_remove_untracked_owned_group(self):
+        revived = Group(self.groups, self.prefix + 'revived-with-empty-definitions')
+        foreign = Group(self.groups, 'foreign')
+        self.state.items = []
+        self.state.groups = []
+        self.state.restore_requested = False
+        self.state.fingerprint = ('empty',)
+        with patch.object(self.m, 'geometry_fingerprint', return_value=('empty',)), \
+                patch.object(self.m.renderer, 'render') as render:
+            self.m.UpdateDimensions().notify(None)
+        self.assertFalse(revived.isValid)
+        self.assertEqual(self.groups.values, [foreign])
+        render.assert_not_called()

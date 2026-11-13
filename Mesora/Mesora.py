@@ -757,12 +757,17 @@ class UpdateDimensions(adsk.core.CustomEventHandler):
                 # Undo/Redo restores document attributes in Fusion's transaction.
                 # Runtime state must follow them, including undoing the last row.
                 state.load()
-            if not state.items and not definitions_changed and not state.restore_requested:
+            owned = renderer.owned_groups(state.design)
+            valid_tracked = [group for group in state.groups if group.isValid]
+            graphics_changed = (len(owned) != len(state.groups) or
+                                len(valid_tracked) != len(state.groups) or
+                                {group.id for group in owned} != {group.id for group in valid_tracked})
+            if not state.items and not definitions_changed and not state.restore_requested and not graphics_changed:
                 return
             fingerprint = geometry_fingerprint(state.design, state.items, resolve, measure)
             # Saving itself, camera motion, and workspace activation must never
             # recreate graphics and restart the Drawing source-save loop.
-            if state.restore_requested or definitions_changed or (state.fingerprint is not None and fingerprint != state.fingerprint):
+            if state.restore_requested or definitions_changed or graphics_changed or (state.fingerprint is not None and fingerprint != state.fingerprint):
                 state.refresh()
         except Exception:
             log_error()
