@@ -6,12 +6,14 @@ import adsk.fusion
 from .dimensions.fusion_geometry import measure, reference_for, resolve
 from . import renderer
 from .dimensions.batch import Batch, RowDraft, duplicate_rows
+from .dimensions.event_scope import EventScope
 from .dimensions.runtime_persistence import load_state, save_state
 from .dimensions.update_fingerprint import geometry_fingerprint
 
 APP = adsk.core.Application.get()
 UI = APP.userInterface
 HANDLERS = []
+COMMAND_SCOPES = []
 DEFINITIONS = []
 CONTROLS = []
 STATES = []
@@ -426,13 +428,18 @@ class Created(adsk.core.CommandCreatedEventHandler):
     def __init__(self, operation):
         super().__init__(); self.operation = operation
     def notify(self, args):
+        scope = EventScope()
+        COMMAND_SCOPES.append(scope)
+        destroyed = DestroyPreview(None, scope)
         try:
             cmd = args.command
+            scope.bind(cmd.destroy, destroyed)
             if self.operation == 'add':
                 cmd.setDialogInitialSize(620, 400)
                 cmd.setDialogMinimumSize(550, 300)
                 inputs = cmd.commandInputs
                 context = BatchCommand()
+                destroyed.context = context
                 context.command = cmd
                 context.inputs = inputs
                 context.active_selection = None
@@ -468,11 +475,10 @@ class Created(adsk.core.CommandCreatedEventHandler):
                 for group in context.state.groups:
                     if group.isValid:
                         group.isVisible = False
-                bind(cmd.inputChanged, Changed(context))
-                bind(cmd.validateInputs, Validate(context))
-                bind(cmd.executePreview, Preview(context))
-                bind(cmd.destroy, DestroyPreview(context))
-                bind(cmd.execute, Execute(self.operation, context))
+                scope.bind(cmd.inputChanged, Changed(context))
+                scope.bind(cmd.validateInputs, Validate(context))
+                scope.bind(cmd.executePreview, Preview(context))
+                scope.bind(cmd.execute, Execute(self.operation, context))
                 context.state.editor_open = True
             elif self.operation == 'remove_one':
                 state = current_state()
@@ -481,10 +487,11 @@ class Created(adsk.core.CommandCreatedEventHandler):
                 for i, (ident, kind, refs) in enumerate(state.items):
                     dropdown.listItems.add(ident + ' — ' + NAMES.get(kind, kind), i == 0, '')
                 inputs.addTextBoxCommandInput('remove_hint', '', 'Choose a measurement to remove.', 2, True)
-                bind(cmd.execute, Execute(self.operation))
+                scope.bind(cmd.execute, Execute(self.operation))
             else:
-                bind(cmd.execute, Execute(self.operation))
+                scope.bind(cmd.execute, Execute(self.operation))
         except Exception:
+            destroyed.finish()
             log_error(); UI.messageBox('Mesora: failed to open command. See Text Commands log.')
 
 
@@ -590,16 +597,31 @@ class Preview(adsk.core.CommandEventHandler):
 
 
 class DestroyPreview(adsk.core.CommandEventHandler):
-    def __init__(self, context): super().__init__(); self.context = context
+    def __init__(self, context, scope=None):
+        super().__init__(); self.context = context; self.scope = scope
     def notify(self, args):
+        self.finish()
+
+    def finish(self):
+        # Locals retain this callback and context until destruction cleanup ends.
+        context, scope = self.context, self.scope
         try:
-            self.context.clear_preview()
-            for group in self.context.state.groups:
-                if group.isValid:
-                    group.isVisible = self.context.state.visible and graphics_workspace()
+            if context is not None:
+                try:
+                    context.clear_preview()
+                finally:
+                    for group in context.state.groups:
+                        if group.isValid:
+                            group.isVisible = context.state.visible and graphics_workspace()
         except Exception: log_error()
         finally:
-            self.context.state.editor_open = False
+            if context is not None:
+                context.state.editor_open = False
+            if scope is not None:
+                scope.close(destroyed=True)
+                if scope in COMMAND_SCOPES:
+                    COMMAND_SCOPES.remove(scope)
+            self.context = self.scope = None
 
 
 class Execute(adsk.core.CommandEventHandler):
@@ -833,6 +855,9 @@ def stop(context):
     global WORKSPACE_CHANGING, UPDATE_PENDING
     WORKSPACE_CHANGING = False
     UPDATE_PENDING = False
+    for scope in list(COMMAND_SCOPES):
+        if scope.close():
+            COMMAND_SCOPES.remove(scope)
     failed_states = []
     for state in STATES:
         try: state.erase()
