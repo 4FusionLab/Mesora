@@ -133,12 +133,13 @@ class CaptionIntegrationTest(unittest.TestCase):
         self.assertTrue(all(g.deleted for g in self.created))
         self.m.UI.messageBox.assert_called_once()
 
-    def test_orbit_packs_visible_preview_and_cancel_reflows_restored_committed_set(self):
+    def test_orbit_preserves_preview_placement_and_cancel_reflows_restored_committed_set(self):
         committed = [self.render(None, None, None, None, 'committed' + str(i)) for i in range(2)]
         for group in committed:
             group.isVisible = False
         preview = [self.render(None, None, None, None, 'preview' + str(i)) for i in range(2)]
         self.state.groups, self.state.live_preview = committed, preview
+        self.m.renderer.arrange_labels(preview, self.m.APP.activeViewport.camera, self.m.APP.activeViewport)
         context = types.SimpleNamespace(state=self.state)
         def clear():
             for group in preview:
@@ -154,6 +155,32 @@ class CaptionIntegrationTest(unittest.TestCase):
         self.assert_separated(committed)
         self.assertFalse(self.state.editor_open)
         self.assertEqual(self.state.live_preview, [])
+
+    def test_camera_collision_does_not_reposition_world_captions_or_leaders(self):
+        groups = [self.render(None, None, None, None, 'm' + str(i)) for i in range(2)]
+        self.state.live_preview = groups
+        viewport = self.m.APP.activeViewport
+        self.m.renderer.arrange_labels(groups, viewport.camera, viewport)
+        self.assert_separated(groups)
+        anchors = [self.m.renderer._LABELS[id(group)][1] for group in groups]
+        leader = self.m.renderer._CAPTIONS[id(groups[1])]['leader']
+        leader_coordinates = leader.coordinates
+        arc = types.SimpleNamespace(coordinates=('unchanged dimension arc',))
+        self.m.renderer._ANGLES[id(groups[0])] = (arc, (0, 0, 0), (1, 0, 0), (0, 1, 0), 1.57, 0)
+        # An edge-on projection makes the previously separated captions overlap.
+        # Camera movement must not silently choose new world positions to fix it.
+        viewport.modelToViewSpace = lambda p: Point(p.x * 100, 0, 0)
+        self.assertEqual(viewport.modelToViewSpace(Point(*anchors[0])).y,
+                         viewport.modelToViewSpace(Point(*anchors[1])).y)
+        for eye_x in (.01, .1, .5):
+            viewport.camera.eye.x = eye_x
+            self.m.CameraChanged().notify(types.SimpleNamespace(viewport=viewport))
+            self.assertEqual([self.m.renderer._LABELS[id(g)][1] for g in groups], anchors)
+            self.assertEqual(leader.coordinates, leader_coordinates)
+            self.assertEqual(arc.coordinates, ('unchanged dimension arc',))
+        self.assertEqual(self.state.live_preview, groups)
+        self.assertTrue(all(g.isValid for g in groups))
+        self.m.APP.log.assert_not_called()
 
 
 if __name__ == '__main__':

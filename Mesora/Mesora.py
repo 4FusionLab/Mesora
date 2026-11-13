@@ -750,9 +750,11 @@ class CameraChanged(adsk.core.CameraEventHandler):
             groups = (list(state.groups) if state.visible else []) + list(state.live_preview) + ([state.preview] if state.preview is not None else [])
             groups = [group for group in groups
                       if getattr(group, 'isValid', True) and getattr(group, 'isVisible', True)]
+            # Orbit changes readability only. Keep caption anchors and leader
+            # geometry fixed even if this view projects them onto each other.
+            # Explicit preview/apply/refresh actions may arrange the whole set.
             for group in groups:
                 renderer.orient_text(group, camera)
-            renderer.arrange_labels(groups, camera, args.viewport)
         except Exception:
             log_error()
         finally:

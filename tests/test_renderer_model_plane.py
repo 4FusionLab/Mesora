@@ -51,6 +51,28 @@ class Eval:
 
 
 class RendererPlaneTest(unittest.TestCase):
+    def test_wide_orbit_readability_rotates_about_exact_caption_world_anchor(self):
+        group = Group()
+        anchor = (4, 5, 6)
+        text = types.SimpleNamespace(width=10)
+        with FakeAPI() as renderer:
+            renderer._LABELS[id(group)] = (text, anchor, (1,0,0), (0,1,0), 1, None, False)
+            renderer._CAPTIONS[id(group)] = {'base': (0,0,0), 'placed': anchor, 'leader': None}
+            arc = types.SimpleNamespace(coordinates=('model-fixed angle arc',))
+            renderer._ANGLES[id(group)] = (arc, (0,0,0), (1,0,0), (0,1,0), 1.57, 0)
+            for eye in ((0,0,10), (10,0,.01), (-10,0,-.01), (0,-10,.01), (0,0,-10)):
+                camera = types.SimpleNamespace(eye=Point(*eye), upVector=Point(0,1,0))
+                renderer.orient_text(group, camera)
+                matrix = text.transform
+                x, y, _ = matrix.axes
+                # The actual CustomGraphicsViewScale pivot is (width/2,-size*.25,0).
+                pivot = tuple(getattr(matrix.origin, axis) + getattr(x, axis)*5 - getattr(y, axis)*.25
+                              for axis in ('x', 'y', 'z'))
+                for actual, expected in zip(pivot, anchor):
+                    self.assertAlmostEqual(actual, expected)
+                self.assertEqual(renderer._LABELS[id(group)][1], anchor)
+                self.assertEqual(arc.coordinates, ('model-fixed angle arc',))
+
     def test_smooth_view_change_keeps_clear_previous_world_caption(self):
         groups = [Group(), Group()]
         camera = types.SimpleNamespace(eye=Point(0,0,10), upVector=Point(0,1,0))
