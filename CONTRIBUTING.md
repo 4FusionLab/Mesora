@@ -1,5 +1,7 @@
 # Contributing to 4FusionLab add-ins
 
+[Русская версия](CONTRIBUTING.ru.md)
+
 Welcome! Keep contributions focused, testable, and safe to run in Autodesk Fusion.
 
 - Discuss breaking CAD/UX changes before implementing.

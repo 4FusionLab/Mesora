@@ -1,5 +1,7 @@
 # Automatic release policy for generated 4FusionLab Fusion add-ins
 
+[Русская версия](RELEASE_POLICY.ru.md)
+
 - Trigger: direct push or merged PR to `main`, but only when shipped paths in `.github/release-paths.txt` changed. A `workflow_dispatch` or PR validation run is always read-only.
 - The initializer is one-time; it generates stable Fusion UUIDs and does not publish an initial Hello World release.
 - GitVersion.Tool 6.8.2 derives `MAJOR.MINOR.PATCH` from full Git history. Use Conventional Commits. CI builds the versioned ZIP and SHA-256, stamps its embedded manifest and verifies it with shared 4FusionLab Actions.

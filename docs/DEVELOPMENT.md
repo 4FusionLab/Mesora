@@ -1,5 +1,7 @@
 # Mesora development
 
+[Русская версия](DEVELOPMENT.ru.md)
+
 `Mesora/Mesora.py` contains the Fusion command and event lifecycle; `Mesora/renderer.py` handles graphics, and `Mesora/dimensions/` contains measurement and layout logic. The top-level `dimensions/` directory is retained as historical offline code; the shipped package is `Mesora/`.
 
 ## Offline checks and package

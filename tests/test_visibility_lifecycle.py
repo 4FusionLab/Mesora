@@ -252,18 +252,22 @@ class LifecycleTest(unittest.TestCase):
 
     def test_save_barrier_uses_geometry_at_save_not_old_runtime_snapshot(self):
         self.state.items = [('m1', 'radius', ('edge',))]
-        self.state.groups = [types.SimpleNamespace(isValid=True, deleteMe=Mock(return_value=True))]
-        self.state.fingerprint = ('old',)
-        self.state.refresh = Mock()
-        args = types.SimpleNamespace(document=self.doc)
-        with patch.object(self.m, 'geometry_fingerprint', return_value=('current-at-save',)):
-            self.m.DocumentEvent('saving').notify(args)
-            self.assertEqual(self.state.fingerprint, ('current-at-save',))
-            self.assertEqual(self.state.groups, [])
-            self.m.DocumentEvent('saved').notify(args)
-            self.m.UpdateDimensions().notify(None)
-        self.state.refresh.assert_not_called()
-        self.assertTrue(self.state.removed_for_save)
+        # Also cover another save while the previous save has already removed
+        # graphics: a queued update must not restore them after that save.
+        for groups in ([types.SimpleNamespace(isValid=True, deleteMe=Mock(return_value=True))], []):
+            with self.subTest(graphics_present=bool(groups)):
+                self.state.groups = groups
+                self.state.fingerprint = ('old',)
+                self.state.refresh = Mock()
+                args = types.SimpleNamespace(document=self.doc)
+                with patch.object(self.m, 'geometry_fingerprint', return_value=('current-at-save',)):
+                    self.m.DocumentEvent('saving').notify(args)
+                    self.assertEqual(self.state.fingerprint, ('current-at-save',))
+                    self.assertEqual(self.state.groups, [])
+                    self.m.DocumentEvent('saved').notify(args)
+                    self.m.UpdateDimensions().notify(None)
+                self.state.refresh.assert_not_called()
+                self.assertTrue(self.state.removed_for_save)
 
     def test_destroy_clears_editor_exclusion_even_on_preview_cleanup_failure(self):
         self.state.editor_open = True

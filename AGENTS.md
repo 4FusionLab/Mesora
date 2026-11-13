@@ -1,5 +1,7 @@
 # 4FusionLab Fusion add-in development contract
 
+[Русская версия](AGENTS.ru.md)
+
 Read [4FusionLab shared engineering rules](https://github.com/4FusionLab/.github/blob/main/AGENTS.md) and [the release platform](https://github.com/4FusionLab/.github/blob/main/RELEASE_PLATFORM.md) first.
 
 ## Working model

@@ -614,8 +614,9 @@ class DocumentEvent(adsk.core.DocumentEventHandler):
         state = state_for(args.document)
         if not state: return
         try:
-            if self.mode == 'saving' and (state.groups or state.preview is not None or state.live_preview):
-                state.erase()
+            if self.mode == 'saving':
+                if state.groups or state.preview is not None or state.live_preview:
+                    state.erase()
                 state.removed_for_save = True
                 state.fingerprint = geometry_fingerprint(state.design, state.items, resolve, measure)
             elif self.mode == 'saved' and state.removed_for_save:

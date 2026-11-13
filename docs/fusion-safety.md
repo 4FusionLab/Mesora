@@ -1,5 +1,7 @@
 # Fusion API safety research
 
+[Русская версия](fusion-safety.ru.md)
+
 ## CustomGraphics persistence
 
 An [Autodesk forum report](https://forums.autodesk.com/t5/fusion-support-forum/bug-report-custom-graphics-serialized-into-a-document-are/td-p/14142906)
@@ -39,19 +41,21 @@ compared as identity; unresolved or ambiguous references must not render old dat
 
 ## Historical validation before the stability candidate
 
+The observations below document an earlier investigation. For later command checks and remaining limitations, see the [README](../README.md) and the stability candidate section below.
+
 Offline unit tests exercise arithmetic, evaluator and persistence stubs, schema
 handling, and reference failure cases. A read-only run on the open macOS Fusion
 design measured one full circular edge (radius 0.51 cm, length 3.2044245067 cm),
 one cylindrical face (diameter 1.02 cm), two vertices, sketch arcs and circles,
 and resolved an edge and a vertex in an occurrence. The inspected occurrence had
 zero translation; this does not validate transformed or nested occurrences. The
-document's modified flag was false both before and after. There has been no live
+document's modified flag was false both before and after. At that stage there had been no live
 attribute write, save/reopen test or Windows test. A direct native renderer smoke
 test created and deleted groups for distance, circular edge length, radius and
 cylindrical diameter; the group count returned to zero. This did not test the
 interactive command or establish visual quality. Fusion marked the open design
 modified, and it was not saved. Attempts to enable the add-in through the manager
-did not produce registered commands; the cause has not yet been established.
+did not produce registered commands; the cause had not been established at that stage.
 
 ## Stability candidate, 2026-11-13
 

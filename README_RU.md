@@ -3,7 +3,7 @@
 
 <p align="center"><a href="https://github.com/4FusionLab/Mesora/releases/tag/v1.0.0"><strong>Скачать экспериментальную версию 1.0.0</strong></a> · <a href="README.md">English</a> · <a href="https://github.com/4FusionLab/Mesora/issues">Сообщить о проблеме</a></p>
 
-> **Экспериментальный кандидат для проверки: только тестовые документы.** Стабильный релиз отложен. При нативной проверке на macOS после API Save As, остановки Mesora, закрытия и повторного открытия обнаружен постоянный артефакт CustomGraphics: размер оставался видимым, хотя `customGraphicsGroups.count` был равен нулю. Удаление графики перед сохранением не гарантирует безопасность. Не сохраняйте ценные модели с этим кандидатом. Подробнее — в [исследовании](docs/fusion-safety.md) и [текущем статусе проверки](docs/visibility-and-drawing.ru.md), а также [нативных доказательствах](docs/validation/stability-native-2026-11-13.ru.md).
+> **Экспериментальный кандидат для проверки: только тестовые документы.** Стабильный релиз отложен. При нативной проверке на macOS после API Save As, остановки Mesora, закрытия и повторного открытия обнаружен постоянный артефакт CustomGraphics: размер оставался видимым, хотя `customGraphicsGroups.count` был равен нулю. Удаление графики перед сохранением не гарантирует безопасность. Не сохраняйте ценные модели с этим кандидатом. Подробнее — в [исследовании](docs/fusion-safety.ru.md) и [текущем статусе проверки](docs/visibility-and-drawing.ru.md), а также [нативных доказательствах](docs/validation/stability-native-2026-11-13.ru.md).
 
 Ссылка выше ведёт на ранее опубликованную экспериментальную версию 1.0.0. Описанные ниже изменения сохранения определений, видимости и обновления находятся в текущих исходниках кандидата; стабильный релиз с ними не опубликован.
 
@@ -40,7 +40,7 @@ python3 scripts/check_project.py
 python3 scripts/build.py --version 1.0.0
 ```
 
-[Безопасность и результаты проверок](docs/fusion-safety.md) · [Разработка](docs/DEVELOPMENT.md) · [Участие в разработке](CONTRIBUTING.md) · [Сообщить о проблеме](https://github.com/4FusionLab/Mesora/issues)
+[Безопасность и результаты проверок](docs/fusion-safety.ru.md) · [Разработка](docs/DEVELOPMENT.ru.md) · [Участие в разработке](CONTRIBUTING.ru.md) · [Сообщить о проблеме](https://github.com/4FusionLab/Mesora/issues)
 
 Mesora распространяется по [PolyForm Noncommercial License 1.0.0](LICENSE). Коммерческое использование за пределами разрешённых лицензией случаев возможно по отдельной договорённости с правообладателем; свяжитесь с 4FusionLab.
 
