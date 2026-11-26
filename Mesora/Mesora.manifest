@@ -1,7 +1,7 @@
 {
   "autodeskProduct": "Fusion360",
   "type": "addin",
-  "author": "4FusionLab",
+  "author": "Pavel Kuznetsov",
   "description": {
     "": "Informational 3D measurements with saved definitions and per-document visibility."
   },
